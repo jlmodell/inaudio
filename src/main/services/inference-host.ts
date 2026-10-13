@@ -29,7 +29,10 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
   private termination: Promise<void> | null = null;
   private rejectBoot: ((error: Error) => void) | null = null;
 
-  constructor(private readonly entry: string = path.join(__dirname, 'inference-worker.js')) { super(); }
+  constructor(
+    private readonly name: string,
+    private readonly entry: string = path.join(__dirname, 'inference-worker.js'),
+  ) { super(); }
   getHealth(): WorkerHealth {
     return { ...this.health, loadedStt: this.loaded.stt, loadedTts: this.loaded.tts };
   }
@@ -44,14 +47,15 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     this.setHealth({ state: 'starting' });
     let child: UtilityProcess;
     try {
-      child = utilityProcess.fork(this.entry, [], { serviceName: 'Inaudio Inference', stdio: 'pipe' });
+      child = utilityProcess.fork(this.entry, [], { serviceName: `Inaudio ${this.name}`, stdio: 'pipe' });
     } catch (error) {
       this.setHealth({ state: 'crashed', lastError: String(error) });
       return Promise.reject(error);
     }
     this.child = child;
-    child.stdout?.on('data', (d: Buffer) => process.stdout.write(`[inference] ${d}`));
-    child.stderr?.on('data', (d: Buffer) => process.stderr.write(`[inference] ${d}`));
+    const tag = `[${this.name}]`;
+    child.stdout?.on('data', (d: Buffer) => process.stdout.write(`${tag} ${d}`));
+    child.stderr?.on('data', (d: Buffer) => process.stderr.write(`${tag} ${d}`));
     this.ready = new Promise<void>((resolve, reject) => {
       this.rejectBoot = reject;
       const bootTimer = setTimeout(() => this.fail(new Error('Inference worker did not start')), 15_000);
@@ -63,16 +67,17 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
             this.rejectBoot = null;
             this.setHealth({ state: 'ready', pid: child.pid, lastError: undefined });
             resolve();
-          } else if (message.type === 'log') console[message.level](`[inference] ${message.message}`);
+          } else if (message.type === 'log') console[message.level](`${tag} ${message.message}`);
           return;
         }
         const pending = this.pending.get(message.id);
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pending.delete(message.id);
-        if (!this.pending.size) this.setHealth({ state: 'ready' });
+        // The caller gets its result before health listeners run.
         if (message.ok) pending.resolve(message.result);
         else pending.reject(new Error(message.error));
+        if (!this.pending.size) this.setHealth({ state: 'ready' });
       });
       child.once('exit', (code) => {
         clearTimeout(bootTimer);
@@ -123,12 +128,13 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     const child = this.child;
     if (!child) throw new Error('Inference worker is not running');
     const id = this.nextId++;
-    if (input.type !== 'ping') this.setHealth({ state: 'busy' });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.fail(new Error(`Inference request timed out (${input.type})`)), TIMEOUTS[input.type]);
       this.pending.set(id, { resolve, reject, timer });
       try { child.postMessage({ ...input, id } as WorkerRequest); }
-      catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); }
+      catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); return; }
+      // Health listeners run only after the work is already on its way to the worker.
+      if (input.type !== 'ping') this.setHealth({ state: 'busy' });
     });
   }
 

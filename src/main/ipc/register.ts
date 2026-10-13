@@ -13,7 +13,7 @@ import { handle, handleOn, listen } from './handle';
 const none = z.undefined();
 
 export function registerIpc(services: Services): void {
-  const { settings, history, models, inference, inserter, paths, companion } = services;
+  const { settings, history, models, stt, tts: synthesis, inserter, paths, companion } = services;
 
   handle(IPC.systemStatus, none, () => services.status());
   handle(IPC.systemOpenLink, schemas.openLink, (id) => openTrustedExternal(EXTERNAL_LINKS[id]));
@@ -87,9 +87,8 @@ export function registerIpc(services: Services): void {
   handle(IPC.dictationTranscribe, schemas.transcribe, async ({ samples, sampleRate, insert }) => {
     const current = settings.get();
     const modelId: ModelId = current.stt.modelId;
-    // A companion voice request may already be queued when the user stops speaking.
-    // Transcription gets priority so a cosmetic reaction cannot extend this wait.
-    const result = await services.runModel(modelId, () => inference.transcribe(samples, sampleRate), 100);
+    // Synthesis runs in its own worker and queue, so companion speech cannot extend this wait.
+    const result = await services.runModel(modelId, () => stt.transcribe(samples, sampleRate), 100);
     const response: TranscribeResult = { transcript: null, text: result.text, inserted: false };
     if (!result.text) return response;
     companion.react('transcription.completed', 'ready');
@@ -199,7 +198,7 @@ export function registerIpc(services: Services): void {
     companion.react('tts.started', 'speaking');
     try {
       return await services.runModel(tts.modelId, () =>
-        inference.speak(text, voiceSid(voiceId ?? tts.voiceId), speed ?? tts.speed),
+        synthesis.speak(text, voiceSid(voiceId ?? tts.voiceId), speed ?? tts.speed),
       );
     } finally {
       companion.react('tts.completed', 'ready');

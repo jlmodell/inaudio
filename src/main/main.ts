@@ -163,6 +163,7 @@ function bootstrap(): void {
       window: () => mainWindow,
       command: sendCommand,
       showWindow,
+      statusChanged: () => send(EVENTS.statusChanged),
     });
     const s = services;
     s.updater.setBeforeInstall(() => {
@@ -222,25 +223,20 @@ function bootstrap(): void {
       }
       if (next.system.launchAtLogin !== previous.system.launchAtLogin) applySystem();
       if (JSON.stringify(next.updates) !== JSON.stringify(previous.updates)) s.updater.applySettings(next.updates);
-      if (next.stt.modelId !== previous.stt.modelId) void s.inference.unload('stt').catch(() => undefined);
+      // Model switches are unloaded by the services' own queue; status follows in its batch.
       if (JSON.stringify(next.overlay) !== JSON.stringify(previous.overlay)) s.overlay.sync();
       if (
         JSON.stringify(next.tray) !== JSON.stringify(previous.tray) ||
         JSON.stringify(next.companion) !== JSON.stringify(previous.companion)
       ) tray.apply(next);
       send(EVENTS.settingsChanged, next);
-      send(EVENTS.statusChanged);
     });
     s.models.on('progress', (event) => {
       send(EVENTS.modelProgress, event);
       if (event.state === 'downloading' || event.state === 'verifying') s.companion.react('model.loading', 'thinking');
       if (event.state === 'installed') s.companion.react('model.loaded', 'ready');
       if (event.state === 'missing' || event.state === 'error') s.companion.react('model.missing', 'model-unavailable');
-      if (event.state === 'installed' || event.state === 'missing' || event.state === 'error') {
-        send(EVENTS.statusChanged);
-      }
     });
-    s.inference.on('health', () => send(EVENTS.statusChanged));
 
     // Audio devices do not survive a sleep, so a recording in flight is abandoned.
     powerMonitor.on('suspend', () => s.dictation.interrupt());
@@ -253,7 +249,8 @@ function bootstrap(): void {
     }
 
     mainWindow = openWindow();
-    void s.inference.start().catch((error: unknown) => console.error(error));
+    // Only the dictation engine is started eagerly; synthesis starts on first use.
+    void s.stt.start().catch((error: unknown) => console.error(error));
     s.updater.start();
   });
 
