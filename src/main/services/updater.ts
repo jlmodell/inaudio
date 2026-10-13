@@ -11,6 +11,13 @@ type UpdateEvents = {
   change: [UpdateStatus];
 };
 
+const UPDATE_FEED = {
+  provider: 'github' as const,
+  owner: 'shikki841',
+  repo: 'inaudio',
+  releaseType: 'release' as const,
+};
+
 /** Main-process owner for signed, HTTPS desktop updates. */
 export class UpdaterService extends EventEmitter<UpdateEvents> {
   private status: UpdateStatus = {
@@ -31,6 +38,10 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.autoDownload = settings.downloadAutomatically;
     autoUpdater.allowPrerelease = false;
+    // Forge-packaged builds do not include electron-builder's app-update.yml.
+    // Configure the public release feed directly so checks do not depend on
+    // that optional file being present.
+    autoUpdater.setFeedURL(UPDATE_FEED);
     autoUpdater.logger = {
       info: (...args: unknown[]) => console.info('[updater]', ...args),
       warn: (...args: unknown[]) => console.warn('[updater]', ...args),

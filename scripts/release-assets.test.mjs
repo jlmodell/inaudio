@@ -41,6 +41,17 @@ test('fails if any required installer format is missing', () => {
   });
 });
 
+test('fails if electron-builder output has no update manifest', () => {
+  fixture((root) => {
+    const builder = path.join(root, 'out', 'builder');
+    mkdirSync(builder, { recursive: true });
+    for (const extension of extensions) writeFileSync(path.join(builder, `installer${extension}`), 'installer bytes');
+    const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Missing update manifest/);
+  });
+});
+
 test('sanitizes unsafe characters in produced asset names', () => {
   fixture((root) => {
     for (const extension of extensions) {
