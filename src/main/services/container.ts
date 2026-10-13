@@ -229,7 +229,7 @@ export function createServices(options: {
   }
   async function load(id: ModelId): Promise<void> {
     if (inference.isLoaded(id)) return;
-    if (!models.isInstalled(id)) throw new Error(`${MODEL_CATALOG[id].name} is not installed`);
+    if (!(await models.revalidate(id))) throw new Error(`${MODEL_CATALOG[id].name} is not installed`);
     const model = MODEL_CATALOG[id];
     const previous = MODEL_IDS.find((candidate) => MODEL_CATALOG[candidate].kind === model.kind && inference.isLoaded(candidate));
     if (previous) await unload(previous);

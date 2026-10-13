@@ -174,19 +174,23 @@ function bootstrap(): void {
     s.companion.on('changed', (snapshot) => send(EVENTS.companionState, snapshot));
     s.updater.on('change', (status) => send(EVENTS.updateState, status));
     openCompanion();
-    void s.models.discover()
+    // The active recognizer is checked first and preloaded at once, so the first recording
+    // never waits for the other models' checks.
+    const activeSttId = s.settings.get().stt.modelId;
+    void s.models.check(activeSttId)
+      .catch(() => undefined)
+      .then(() => {
+        if (!s.models.isInstalled(activeSttId)) return;
+        // Loading a 0.6B model during stop makes the UI appear stuck in "Transcribing".
+        void s.ensureLoaded(activeSttId).catch((error: unknown) => {
+          console.error('Active speech model preload failed', error);
+        });
+      })
+      .then(() => s.models.discover())
       .then(() => {
         const active = s.modelStatuses().filter((model) => model.active);
         if (active.some((model) => !model.installed || model.health === 'unavailable' || model.health === 'error')) {
           s.companion.react('model.missing', 'model-unavailable');
-        }
-        const activeStt = active.find((model) => model.kind === 'stt' && model.installed);
-        if (activeStt) {
-          // Load the active recognizer before the first recording. Loading a 0.6B model
-          // during stop makes the UI appear stuck in "Transcribing" for several seconds.
-          void s.ensureLoaded(activeStt.id).catch((error: unknown) => {
-            console.error('Active speech model preload failed', error);
-          });
         }
       })
       .catch((error: unknown) => console.error('Model discovery failed', error));
