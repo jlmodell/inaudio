@@ -1,6 +1,6 @@
 # Releasing Inaudio
 
-Merging or pushing to `main` starts the release workflow. The workflow reads stable GitHub release tags and the commits since the newest stable tag. `feat:` creates a minor release, `!` or `BREAKING CHANGE:` creates a major release, and other commits create a patch release. With no prior release, the `package.json` version (`1.0.0`) is the baseline.
+Merging or pushing to `main` starts the release workflow. The workflow reads stable GitHub release tags and the commits since the newest stable tag. `feat:` creates a minor release, `!` or `BREAKING CHANGE:` creates a major release, and other commits create a patch release. With no prior release, the `package.json` version is the baseline. Once a stable release exists, the newest stable tag decides the next version and `package.json` is only kept in step with it.
 
 The workflow first runs the reusable CI workflow on Windows, Linux, and macOS. Each runner applies the planned version in its disposable checkout, packages the application, and emits installers plus SHA-256 manifests. A separate publisher job has the only `contents: write` permission. It creates a draft release with GitHub generated notes, uploads all verified artifacts, and publishes the draft.
 
