@@ -406,6 +406,7 @@ export function createServices(options: {
       dictation.dispose();
       companion.dispose();
       overlay.destroy();
+      inserter.dispose();
       models.cancelAll();
       await Promise.all([hosts.stt.stop(), hosts.tts.stop()]);
       await Promise.all([queues.stt.idle(), queues.tts.idle()]);
