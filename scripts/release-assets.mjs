@@ -21,6 +21,9 @@ const artifacts = files(directory).filter((file) => {
   const name = path.basename(file);
   return extensions.includes(path.extname(file)) && (path.extname(file) !== '.yml' || /^latest(?:-linux|-mac)?\.yml$/.test(name));
 });
+if (builderDirectory && !artifacts.some((file) => /^latest(?:-linux|-mac)?\.yml$/.test(path.basename(file)))) {
+  throw new Error(`Missing update manifest in ${builderDirectory}`);
+}
 for (const extension of extensions.filter((value) => value !== '.blockmap' && value !== '.yml')) {
   if (!artifacts.some((file) => file.endsWith(extension))) throw new Error(`Missing ${extension} installer`);
 }
