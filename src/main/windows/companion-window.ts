@@ -86,5 +86,8 @@ export function placeCompanion(
       : top;
   const nextX = Math.max(x + margin, Math.min(unclampedX, x + width - windowWidth - margin));
   const nextY = Math.max(y + margin, Math.min(unclampedY, y + height - windowHeight - margin));
+  // Focus tracking calls this four times a second; an unmoved window is left alone.
+  const current = win.getBounds();
+  if (current.x === nextX && current.y === nextY && current.width === windowWidth && current.height === windowHeight) return;
   win.setBounds({ x: nextX, y: nextY, width: windowWidth, height: windowHeight }, false);
 }

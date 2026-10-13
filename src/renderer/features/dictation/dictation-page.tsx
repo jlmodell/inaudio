@@ -22,8 +22,31 @@ function useElapsed(startedAt: number | null) {
   return startedAt ? now - startedAt : 0;
 }
 
+/** The input level changes ~20 times a second, so only these two pieces subscribe to it. */
+function LevelRing() {
+  const level = useDictation((s) => s.level);
+  return (
+    <span
+      aria-hidden
+      className="absolute inset-0 rounded-full border-4 border-record"
+      style={{ transform: `scale(${1.08 + level * 0.5})`, opacity: 0.35 + level * 0.4, transition: 'transform 80ms linear' }}
+    />
+  );
+}
+
+function LiveLevelMeter({ active }: { active: boolean }) {
+  const level = useDictation((s) => (active ? s.level : 0));
+  return <LevelMeter level={level} active={active} />;
+}
+
 export function DictationPage() {
-  const { phase, level, startedAt, lastText, last, message, toggle, cancel } = useDictation();
+  const phase = useDictation((s) => s.phase);
+  const startedAt = useDictation((s) => s.startedAt);
+  const lastText = useDictation((s) => s.lastText);
+  const last = useDictation((s) => s.last);
+  const message = useDictation((s) => s.message);
+  const toggle = useDictation((s) => s.toggle);
+  const cancel = useDictation((s) => s.cancel);
   const { data: settings } = useSettings();
   const { data: status } = useSystemStatus();
   const navigate = useUi((s) => s.navigate);
@@ -68,13 +91,7 @@ export function DictationPage() {
             listening ? 'bg-record text-white' : 'bg-accent text-on-accent hover:bg-accent-hover',
           )}
         >
-          {listening && (
-            <span
-              aria-hidden
-              className="absolute inset-0 rounded-full border-4 border-record"
-              style={{ transform: `scale(${1.08 + level * 0.5})`, opacity: 0.35 + level * 0.4, transition: 'transform 80ms linear' }}
-            />
-          )}
+          {listening && <LevelRing />}
           {listening ? <Square className="size-9 fill-current" /> : <Mic className="size-10" />}
         </button>
         <div className="grid justify-items-center gap-2">
@@ -82,7 +99,7 @@ export function DictationPage() {
             {label}
             {listening && <span className="font-mono text-sm text-muted tabular-nums">{formatDuration(elapsed)}</span>}
           </div>
-          <LevelMeter level={listening ? level : 0} active={listening} />
+          <LiveLevelMeter active={listening} />
           <p className="text-sm text-muted">
             {listening ? 'Press again to insert the text.' : (
               <span className="inline-flex items-center gap-2">Press <Kbd keys={keys} /> from any app{settings.dictation.mode === 'push-to-talk' ? ', or hold it while Inaudio is focused' : ''}.</span>

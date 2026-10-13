@@ -29,10 +29,13 @@ export function BuddySprite({
   companion,
   state = 'idle',
   size = 'large',
+  paused = false,
 }: {
   companion: CompanionPackage;
   state?: CompanionState;
   size?: 'small' | 'large';
+  /** Holds the current frame, for a sprite nobody can see. */
+  paused?: boolean;
 }) {
   const [frame, setFrame] = useState(0);
   const animation = companion.animation.stateRows[state] ?? companion.animation.stateRows.idle;
@@ -42,12 +45,13 @@ export function BuddySprite({
 
   useEffect(() => {
     setFrame(0);
+    if (paused) return;
     const timer = window.setInterval(
       () => setFrame((current) => (current + 1) % frameCount),
       companion.animation.frameDurationMs,
     );
     return () => window.clearInterval(timer);
-  }, [companion.animation.frameDurationMs, frameCount, state]);
+  }, [companion.animation.frameDurationMs, frameCount, state, paused]);
 
   const backgroundPosition = useMemo(
     () => `${(frame / Math.max(1, companion.columns - 1)) * 100}% ${(row / Math.max(1, companion.rows - 1)) * 100}%`,

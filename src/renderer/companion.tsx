@@ -123,7 +123,9 @@ function Companion() {
   const { companion, settings, state } = snapshot;
   const bubble = companionBubbleText(state, snapshot.settings.position === 'focus-area');
   document.body.dataset.surface = 'companion';
-  document.body.dataset.motion = settings.motion;
+  // The window never throttles (it must react while hidden), so a hidden companion stops
+  // its own animations instead of compositing frames nobody can see.
+  document.body.dataset.motion = settings.visible ? settings.motion : 'off';
   return (
     <button
       type="button"
@@ -135,7 +137,7 @@ function Companion() {
     >
       {settings.bubble !== 'hidden' && <span className={`companion-bubble companion-bubble-${settings.bubble}`} role="status">{bubble}</span>}
       <span className="companion-sprite" style={{ filter: `drop-shadow(0 10px 18px ${companion.color}66)` }}>
-        <BuddySprite companion={companion} state={state} size="large" />
+        <BuddySprite companion={companion} state={state} size="large" paused={!settings.visible} />
       </span>
     </button>
   );
