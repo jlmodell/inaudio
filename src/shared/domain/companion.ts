@@ -73,6 +73,8 @@ export interface CompanionSnapshot {
   state: CompanionState;
   event?: CompanionEvent;
   revision: number;
+  /** A recording or its transcription is in flight; spoken lines wait until it ends. */
+  dictating: boolean;
 }
 
 export function companionBubbleText(state: CompanionState, focusArea = false): string {

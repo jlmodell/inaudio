@@ -179,6 +179,7 @@ export function createServices(options: {
     overlay,
     onState: (state) => {
       options.tray.setPhase(state.phase, state.startedAt);
+      companion.setDictating(state.phase === 'listening' || state.phase === 'transcribing' || state.phase === 'inserting');
       if (state.phase === 'listening') companion.react('dictation.started', 'listening');
       else if (state.phase === 'transcribing') companion.react('dictation.stopped', 'transcribing');
       else if (state.phase === 'idle') companion.react('app.idle', 'idle');

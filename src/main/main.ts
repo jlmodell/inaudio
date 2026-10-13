@@ -172,7 +172,6 @@ function bootstrap(): void {
     });
     registerIpc(s);
     ipcReady = true;
-    s.companion.on('changed', (snapshot) => send(EVENTS.companionState, snapshot));
     s.updater.on('change', (status) => send(EVENTS.updateState, status));
     openCompanion();
     // The active recognizer is checked first and preloaded at once, so the first recording

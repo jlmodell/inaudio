@@ -7,7 +7,7 @@ import {
   companionSettingsSchema,
   type CompanionEvent,
   type CompanionPackage,
-  type CompanionSettings,
+  type CompanionSnapshot,
   type CompanionState,
 } from '@shared/domain/companion';
 import type { Settings, SettingsPatch } from '@shared/domain/settings';
@@ -17,13 +17,10 @@ import { readCompanionManifest } from './companion-package';
 import { createCompanionWindow, placeCompanion } from '../windows/companion-window';
 import type { SettingsStore } from './settings-store';
 
-export interface CompanionSnapshot {
-  companion: CompanionPackage;
-  settings: CompanionSettings;
-  state: CompanionState;
-  event?: CompanionEvent;
-  revision: number;
-}
+export type { CompanionSnapshot };
+
+/** Events that may repeat back to back and should replay each time. */
+const REPEATABLE_EVENTS: readonly CompanionEvent[] = ['companion.clicked', 'transcription.completed'];
 
 export class CompanionService extends EventEmitter<{
   changed: [CompanionSnapshot];
@@ -33,6 +30,7 @@ export class CompanionService extends EventEmitter<{
   private state: CompanionState = 'idle';
   private lastEvent: CompanionEvent | undefined;
   private revision = 0;
+  private dictating = false;
   private packages: CompanionPackage[] = [...BUILT_IN_COMPANIONS];
   private sleepingTimer: NodeJS.Timeout | null = null;
   private focusTimer: NodeJS.Timeout | null = null;
@@ -55,7 +53,21 @@ export class CompanionService extends EventEmitter<{
     const settings = this.settings.get().companion;
     const companion = this.packages.find((item) => item.id === settings.activeId) ?? this.packages[0];
     if (!companion) throw new Error('No companion is installed');
-    return { companion, settings, state: this.state, event: this.lastEvent, revision: this.revision };
+    return {
+      companion,
+      settings,
+      state: this.state,
+      event: this.lastEvent,
+      revision: this.revision,
+      dictating: this.dictating,
+    };
+  }
+
+  /** Mirrors whether dictation is in flight, so the companion holds spoken lines until it ends. */
+  setDictating(active: boolean): void {
+    if (this.dictating === active) return;
+    this.dictating = active;
+    this.emitChanged();
   }
 
   select(id: string): CompanionSnapshot {
@@ -142,6 +154,8 @@ export class CompanionService extends EventEmitter<{
         nextState = 'attention';
       }
     }
+    // A repeated report of the same thing changes nothing on screen, so nothing is sent.
+    if (nextState === this.state && event === this.lastEvent && !REPEATABLE_EVENTS.includes(event)) return;
     this.state = nextState;
     this.lastEvent = event;
     this.revision += 1;
@@ -205,10 +219,11 @@ export class CompanionService extends EventEmitter<{
   }
 
   private emitChanged(): void {
+    const snapshot = this.snapshot();
     if (this.window && !this.window.isDestroyed()) {
-      this.window.webContents.send('event:companion-state', this.snapshot());
+      this.window.webContents.send('event:companion-state', snapshot);
     }
-    this.emit('changed', this.snapshot());
+    this.emit('changed', snapshot);
   }
 
   private resetSleepTimer(): void {

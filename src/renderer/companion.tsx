@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { companionBubbleText, type CompanionSnapshot } from '@shared/domain/companion';
+import {
+  companionBubbleText,
+  type CompanionEvent,
+  type CompanionSnapshot,
+} from '@shared/domain/companion';
 import type { VoiceId } from '@shared/domain/models';
 import { api } from './lib/api';
 import './styles/index.css';
@@ -8,12 +12,28 @@ import { BuddySprite } from './features/companion/buddy-sprite';
 import { playCue } from './features/dictation/audio/cues';
 import { PcmPlayer } from './lib/audio-player';
 
+/**
+ * Never spoken: dictation and speech events would talk over the user or over Inaudio, and
+ * idle and model events fire too often to be worth a synthesized line.
+ */
+const SILENT_EVENTS: readonly CompanionEvent[] = [
+  'dictation.started',
+  'dictation.stopped',
+  'tts.started',
+  'tts.completed',
+  'app.idle',
+  'model.loading',
+  'model.loaded',
+];
+
 function Companion() {
   const [snapshot, setSnapshot] = useState<CompanionSnapshot | null>(null);
   const [outputDeviceId, setOutputDeviceId] = useState('default');
   const [tts, setTts] = useState<{ voiceId?: VoiceId; speed?: number }>({});
   const previousState = useRef<CompanionSnapshot['state'] | null>(null);
   const spokenRevision = useRef(0);
+  const pendingLine = useRef<string | null>(null);
+  const wasDictating = useRef(false);
   const speech = useRef(new PcmPlayer());
   const speechJob = useRef(0);
 
@@ -61,23 +81,29 @@ function Companion() {
   }, [outputDeviceId, snapshot]);
 
   useEffect(() => {
-    if (
-      !snapshot ||
-      !snapshot.settings.voiceEnabled ||
-      !snapshot.settings.soundEnabled ||
-      !snapshot.event ||
-      snapshot.state === 'listening' ||
-      snapshot.state === 'transcribing' ||
-      snapshot.event === 'dictation.started' ||
-      snapshot.event === 'dictation.stopped' ||
-      snapshot.revision === spokenRevision.current ||
-      snapshot.event === 'tts.started' ||
-      snapshot.event === 'tts.completed'
-    ) return;
-    spokenRevision.current = snapshot.revision;
+    if (!snapshot) return;
+    const { settings } = snapshot;
+    // A new dictation silences the companion and drops whatever it was about to say.
+    if (snapshot.dictating && !wasDictating.current) {
+      pendingLine.current = null;
+      speechJob.current += 1;
+      speech.current.stop();
+    }
+    wasDictating.current = snapshot.dictating;
+    if (snapshot.event && !SILENT_EVENTS.includes(snapshot.event) && snapshot.revision !== spokenRevision.current) {
+      spokenRevision.current = snapshot.revision;
+      pendingLine.current =
+        settings.voiceEnabled && settings.soundEnabled
+          ? companionBubbleText(snapshot.state, settings.position === 'focus-area')
+          : null;
+    }
+    // Lines raised during a recording or its transcription wait until it is over.
+    const text = pendingLine.current;
+    if (snapshot.dictating || !text) return;
+    pendingLine.current = null;
     const job = ++speechJob.current;
     speech.current.stop();
-    void api.tts.speak({ text: companionBubbleText(snapshot.state, snapshot.settings.position === 'focus-area'), ...tts })
+    void api.tts.speak({ text, ...tts })
       .then((result) => {
         if (job === speechJob.current) {
           return speech.current.play(
