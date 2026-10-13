@@ -1,9 +1,7 @@
 import { app, Notification, powerMonitor, systemPreferences } from 'electron';
-import type { PermissionState, SystemStatus } from '@shared/domain/system';
+import type { PermissionState, SystemStatus, WorkerHealth } from '@shared/domain/system';
 import type { AppPaths } from '../app/paths';
 import { overlaySupport } from '../app/platform';
-import type { InferenceHost } from './inference-host';
-import type { ModelManager } from './model-manager';
 import type { OverlayController } from './overlay-controller';
 import type { ShortcutService } from './shortcuts';
 import type { TextInserter } from './text-insertion';
@@ -20,13 +18,12 @@ function microphonePermission(): PermissionState {
 
 export function collectSystemStatus(deps: {
   paths: AppPaths;
-  models: ModelManager;
-  inference: InferenceHost;
+  worker: WorkerHealth;
   shortcuts: ShortcutService;
   inserter: TextInserter;
   overlay: OverlayController;
   tray: TrayService;
-}): Omit<SystemStatus, 'window' | 'update'> {
+}): Omit<SystemStatus, 'window' | 'update' | 'models'> {
   return {
     platform: process.platform,
     arch: process.arch,
@@ -42,8 +39,7 @@ export function collectSystemStatus(deps: {
     notificationsSupported: Notification.isSupported(),
     dataDir: deps.paths.data,
     modelsDir: deps.paths.models,
-    models: deps.models.list(),
-    worker: deps.inference.getHealth(),
+    worker: deps.worker,
     onBattery: powerMonitor.isOnBatteryPower(),
   };
 }

@@ -68,14 +68,19 @@ function useHoldToTalk(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const isChord = (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'Space';
+    // A release can land while the microphone is still opening; the store queues that stop.
+    let held = false;
     const down = (e: KeyboardEvent) => {
       if (isChord(e) && !e.repeat) {
         e.preventDefault();
+        held = true;
         void useDictation.getState().start();
       }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && useDictation.getState().phase === 'listening') void useDictation.getState().stop();
+      if (e.code !== 'Space' || !held) return;
+      held = false;
+      void useDictation.getState().stop();
     };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);

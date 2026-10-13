@@ -42,41 +42,78 @@ export function safeRelative(value: string): boolean {
   );
 }
 
+export const MARKER_FILE = '.installed.json';
+const MARKER_VERSION = 1;
+const MAX_MARKER_BYTES = 1024 * 1024;
+
 function stamp(stat: fs.Stats): string {
   return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode].join(':');
 }
 
-/** A cheap cache check; explicit verification still hashes every byte. */
-export function snapshot(root: string, files: readonly IntegrityFile[]): Map<string, string> {
+/** Bounded fan-out: dispatching hundreds of fs requests at once stalls the event loop. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return results;
+}
+
+function directoriesOf(files: readonly IntegrityFile[]): Set<string> {
+  const directories = new Set<string>();
+  for (const file of files) {
+    const parts = file.path.split('/');
+    for (let i = 1; i < parts.length; i++) directories.add(parts.slice(0, i).join('/'));
+  }
+  return directories;
+}
+
+/**
+ * A cheap structural check with file stamps; explicit verification still hashes every byte.
+ * Asynchronous so walking a large inventory never blocks the main process.
+ */
+export async function snapshot(
+  root: string,
+  files: readonly IntegrityFile[],
+): Promise<Map<string, string>> {
   assertSafePath(root);
   const result = new Map<string, string>();
   const expected = new Map(files.map((file) => [file.path, file.bytes]));
-  const walk = (directory: string, relative: string) => {
-    const dirStat = fs.lstatSync(directory);
+  const directories = directoriesOf(files);
+  const walk = async (directory: string, relative: string): Promise<void> => {
+    const dirStat = await fs.promises.lstat(directory);
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink())
       throw new Error('Unsafe model directory');
     result.set(relative, stamp(dirStat));
-    for (const name of fs.readdirSync(directory)) {
+    const names = await fs.promises.readdir(directory);
+    const stats = await mapLimit(names, 16, (name) => fs.promises.lstat(path.join(directory, name)));
+    const subdirectories: [string, string][] = [];
+    names.forEach((name, index) => {
       const key = relative ? `${relative}/${name}` : name;
-      const target = path.join(directory, name);
-      const stat = fs.lstatSync(target);
+      const stat = stats[index];
+      if (!stat) throw new Error(`Missing model entry: ${key}`);
       if (stat.isSymbolicLink()) throw new Error(`Symbolic link in model: ${key}`);
       if (stat.isDirectory()) {
-        if (!files.some((file) => file.path.startsWith(`${key}/`)))
-          throw new Error(`Unexpected directory: ${key}`);
-        walk(target, key);
-      } else {
-        if (!stat.isFile()) throw new Error(`Not a regular file: ${key}`);
-        if (key === '.installed.json') continue;
-        if (!expected.has(key)) throw new Error(`Unexpected or damaged model file: ${key}`);
-        if (expected.get(key) && expected.get(key) !== stat.size)
-          throw new Error(`Unexpected or damaged model file: ${key}`);
-        expected.delete(key);
-        result.set(key, stamp(stat));
+        if (!directories.has(key)) throw new Error(`Unexpected directory: ${key}`);
+        subdirectories.push([path.join(directory, name), key]);
+        return;
       }
-    }
+      if (!stat.isFile()) throw new Error(`Not a regular file: ${key}`);
+      if (key === MARKER_FILE) return;
+      if (!expected.has(key)) throw new Error(`Unexpected or damaged model file: ${key}`);
+      if (expected.get(key) && expected.get(key) !== stat.size)
+        throw new Error(`Unexpected or damaged model file: ${key}`);
+      expected.delete(key);
+      result.set(key, stamp(stat));
+    });
+    for (const [target, key] of subdirectories) await walk(target, key);
   };
-  walk(root, '');
+  await walk(root, '');
   if (expected.size) throw new Error(`Missing model file: ${expected.keys().next().value}`);
   return result;
 }
@@ -85,14 +122,79 @@ export function sameSnapshot(a: Map<string, string>, b: Map<string, string>): bo
   return a.size === b.size && [...a].every(([key, value]) => b.get(key) === value);
 }
 
+/** File stamps recorded after the last full verification, or null when absent or invalid. */
+export async function readMarker(root: string): Promise<Map<string, string> | null> {
+  const target = path.join(root, MARKER_FILE);
+  let handle: fs.promises.FileHandle;
+  try {
+    assertSafePath(root);
+    handle = await fs.promises.open(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  } catch {
+    return null;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > MAX_MARKER_BYTES) return null;
+    const raw = JSON.parse(await handle.readFile('utf8')) as unknown;
+    if (!raw || typeof raw !== 'object') return null;
+    const { version, files } = raw as { version?: unknown; files?: unknown };
+    if (version !== MARKER_VERSION || !files || typeof files !== 'object') return null;
+    const result = new Map<string, string>();
+    for (const [key, value] of Object.entries(files)) {
+      if (typeof value !== 'string') return null;
+      result.set(key, value);
+    }
+    return result;
+  } catch {
+    return null;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Records the stamps of verified files. The temporary file lives beside the model directory
+ * so an interrupted write never leaves an unexpected entry inside it.
+ */
+export async function writeMarker(
+  root: string,
+  files: readonly IntegrityFile[],
+  stamps: Map<string, string>,
+): Promise<void> {
+  assertSafePath(root);
+  const body = JSON.stringify({
+    version: MARKER_VERSION,
+    files: Object.fromEntries(files.map((file) => [file.path, stamps.get(file.path) ?? ''])),
+  });
+  const temporary = `${root}.${process.pid}.marker.tmp`;
+  await fs.promises.writeFile(temporary, body, { mode: 0o600 });
+  await fs.promises.rename(temporary, path.join(root, MARKER_FILE));
+}
+
+/** Inventory files whose current stamp differs from the recorded one. */
+export function changedFiles(
+  files: readonly IntegrityFile[],
+  current: Map<string, string>,
+  recorded: Map<string, string> | null,
+): Set<string> {
+  return new Set(
+    files
+      .filter((file) => !recorded || recorded.get(file.path) !== current.get(file.path))
+      .map((file) => file.path),
+  );
+}
+
+/** Hashes every inventory file, or only `only` when given. */
 export async function verifyFiles(
   root: string,
   files: readonly IntegrityFile[],
   signal?: AbortSignal,
+  only?: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
-  const before = snapshot(root, files);
+  const before = await snapshot(root, files);
   for (const file of files) {
     signal?.throwIfAborted();
+    if (only && !only.has(file.path)) continue;
     const target = path.join(root, file.path);
     assertSafePath(target);
     const handle = await fs.promises.open(
@@ -105,7 +207,8 @@ export async function verifyFiles(
         throw new Error(`Model changed during verification: ${file.path}`);
       if (file.sha256) {
         const hash = createHash('sha256');
-        for await (const chunk of handle.createReadStream({ autoClose: false })) {
+        // Large reads keep the per-chunk main-thread hashing to a few hundred short slices.
+        for await (const chunk of handle.createReadStream({ autoClose: false, highWaterMark: 1 << 20 })) {
           signal?.throwIfAborted();
           hash.update(chunk);
         }
@@ -117,7 +220,7 @@ export async function verifyFiles(
       await handle.close();
     }
   }
-  const after = snapshot(root, files);
+  const after = await snapshot(root, files);
   if (!sameSnapshot(before, after)) throw new Error('Model changed during verification');
   return after;
 }

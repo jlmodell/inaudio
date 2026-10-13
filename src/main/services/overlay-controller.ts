@@ -67,6 +67,13 @@ export class OverlayController {
     this.sync();
   }
 
+  /** Only the meter moved: no geometry, visibility or mouse handling can have changed. */
+  setLevel(level: number): void {
+    if (this.dictation.level === level) return;
+    this.dictation = { ...this.dictation, level };
+    if (!this.disposed) this.push();
+  }
+
   phase(): DictationState['phase'] {
     return this.dictation.phase;
   }

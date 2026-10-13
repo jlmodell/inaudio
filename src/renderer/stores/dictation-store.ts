@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { Transcript } from '@shared/domain/history';
-import type { DictationPhase, DictationState as ReportedState } from '@shared/domain/system';
+import { MODEL_CATALOG, type ModelId, type ModelStatus } from '@shared/domain/models';
+import type {
+  DictationPhase,
+  DictationState as ReportedState,
+  SystemStatus,
+} from '@shared/domain/system';
 import { api, errorMessage } from '@renderer/lib/api';
 import { queryClient, keys } from '@renderer/lib/queries';
 import type { Settings } from '@shared/domain/settings';
@@ -28,9 +33,19 @@ interface DictationState {
 const recorder = new Recorder();
 let limitTimer: ReturnType<typeof setTimeout> | undefined;
 let starting = false;
+/** A stop or cancel that arrived while the microphone was still opening. */
+let afterStart: 'stop' | 'cancel' | null = null;
 
 function settings(): Settings | undefined {
   return queryClient.getQueryData<Settings>(keys.settings);
+}
+
+/** The cached install state of a model, or undefined before the first status arrives. */
+function installed(id: ModelId): boolean | undefined {
+  const models =
+    queryClient.getQueryData<ModelStatus[]>(keys.models) ??
+    queryClient.getQueryData<SystemStatus>(keys.status)?.models;
+  return models?.find((model) => model.id === id)?.installed;
 }
 
 export const useDictation = create<DictationState>((set, get) => {
@@ -82,9 +97,14 @@ export const useDictation = create<DictationState>((set, get) => {
     async start() {
       if (starting || get().phase === 'listening' || get().phase === 'transcribing') return;
       starting = true;
+      afterStart = null;
       try {
         const current = settings() ?? (await api.settings.get());
-        await api.models.load(current.stt.modelId);
+        const modelId = current.stt.modelId;
+        if (installed(modelId) === false) throw new Error(`${MODEL_CATALOG[modelId].name} is not downloaded yet.`);
+        // The model is only needed at stop, so a cold engine loads while the user speaks.
+        // Transcription awaits the same load, and reports its error if it fails.
+        void api.models.load(modelId).catch(() => undefined);
         await recorder.start({
           deviceId: current.audio.inputDeviceId,
           gain: current.audio.inputGain,
@@ -94,6 +114,11 @@ export const useDictation = create<DictationState>((set, get) => {
         setPhase('listening', { startedAt: Date.now(), message: null, level: 0 });
         startLevelReports();
         limitTimer = setTimeout(() => void get().stop(), MAX_RECORDING_MS);
+        starting = false;
+        const queued = afterStart;
+        afterStart = null;
+        if (queued === 'stop') void get().stop();
+        else if (queued === 'cancel') void get().cancel();
       } catch (error) {
         const name = error instanceof DOMException ? error.name : '';
         const message =
@@ -109,6 +134,10 @@ export const useDictation = create<DictationState>((set, get) => {
     },
 
     async stop({ insert = true } = {}) {
+      if (starting) {
+        afterStart = 'stop';
+        return;
+      }
       if (get().phase !== 'listening') return;
       clearTimeout(limitTimer);
       stopLevelReports();
@@ -137,6 +166,10 @@ export const useDictation = create<DictationState>((set, get) => {
     },
 
     async cancel() {
+      if (starting) {
+        afterStart = 'cancel';
+        return;
+      }
       clearTimeout(limitTimer);
       stopLevelReports();
       await recorder.dispose();
@@ -145,7 +178,7 @@ export const useDictation = create<DictationState>((set, get) => {
 
     async toggle() {
       const { phase } = get();
-      if (phase === 'listening') await get().stop();
+      if (phase === 'listening' || starting) await get().stop();
       else if (phase !== 'transcribing' && phase !== 'inserting') await get().start();
     },
   };

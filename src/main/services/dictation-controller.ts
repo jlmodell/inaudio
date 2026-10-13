@@ -68,9 +68,16 @@ export class DictationController {
 
   /** The capturing window reporting what it is actually doing. */
   report(state: DictationState): void {
-    const changed = state.phase !== this.state.phase;
+    const previous = this.state;
     this.state = state;
+    const changed = state.phase !== previous.phase;
     if (changed) this.clearPending();
+    // While listening the window reports ten times a second, and usually only the level
+    // moved. That only concerns the overlay's meter, not the tray or the companion.
+    if (!changed && state.startedAt === previous.startedAt && state.message === previous.message) {
+      this.options.overlay.setLevel(state.level);
+      return;
+    }
     this.options.overlay.setDictation(state);
     this.options.onState(state);
   }

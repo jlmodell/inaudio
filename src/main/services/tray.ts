@@ -42,6 +42,8 @@ export class TrayService {
   private models: ModelStatus[] = [];
   private devices: AudioDevice[] = [];
   private titleTimer: NodeJS.Timeout | null = null;
+  /** What was last drawn, so identical redraws skip rebuilding the native menu. */
+  private drawn = '';
 
   constructor(
     private readonly actions: TrayActions,
@@ -58,6 +60,7 @@ export class TrayService {
     if (!this.tray) {
       this.tray = new Tray(trayImage());
       this.tray.on('click', () => this.onClick());
+      this.drawn = '';
     }
     this.render();
   }
@@ -87,6 +90,7 @@ export class TrayService {
     this.titleTimer = null;
     this.tray?.destroy();
     this.tray = null;
+    this.drawn = '';
   }
 
   private onClick(): void {
@@ -213,12 +217,16 @@ export class TrayService {
   private render(): void {
     const tray = this.tray;
     if (!tray || tray.isDestroyed()) return;
-    const reflect = this.settings.tray.reflectState;
-    const recording = this.phase === 'listening';
-
-    tray.setImage(reflect && recording ? trayRecordingImage() : trayImage());
-    tray.setToolTip(`${app.getName()}: ${PHASE_LABEL[this.phase]}`);
-    tray.setContextMenu(Menu.buildFromTemplate(this.template()));
+    const recording = this.settings.tray.reflectState && this.phase === 'listening';
+    const template = this.template();
+    // JSON drops the click handlers; device ids stand in for what the microphone items select.
+    const drawn = JSON.stringify([recording, this.phase, this.devices, template]);
+    if (drawn !== this.drawn) {
+      this.drawn = drawn;
+      tray.setImage(recording ? trayRecordingImage() : trayImage());
+      tray.setToolTip(`${app.getName()}: ${PHASE_LABEL[this.phase]}`);
+      tray.setContextMenu(Menu.buildFromTemplate(template));
+    }
     this.applyTitle();
   }
 

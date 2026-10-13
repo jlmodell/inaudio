@@ -15,10 +15,13 @@ import { resolveInside } from '../app/paths';
 import { downloadVerified } from './downloader';
 import {
   assertSafePath,
+  changedFiles,
   extractVerifiedArchive,
+  readMarker,
   sameSnapshot,
   snapshot,
   verifyFiles,
+  writeMarker,
   type IntegrityFile,
 } from './model-integrity';
 import { KOKORO_ARCHIVE_SHA256, KOKORO_FILES } from './kokoro-integrity';
@@ -60,16 +63,23 @@ export class ModelManager extends EventEmitter<{ progress: [ModelProgressEvent] 
     return resolveInside(this.modelsRoot, MODEL_CATALOG[id].id);
   }
 
+  /** In-memory only: status reads must never touch the disk. `revalidate` guards each load. */
   isInstalled(id: ModelId): boolean {
+    return this.verified.has(id);
+  }
+
+  /** Re-checks stamps before a model is loaded; changed files are re-hashed. */
+  async revalidate(id: ModelId): Promise<boolean> {
     const cached = this.verified.get(id);
     if (!cached) return false;
     try {
-      if (sameSnapshot(cached, snapshot(this.directory(id), inventory(id)))) return true;
+      if (sameSnapshot(cached, await snapshot(this.directory(id), inventory(id)))) return true;
     } catch {
       /* Any filesystem change invalidates the verified cache. */
     }
     this.verified.delete(id);
-    return false;
+    await this.check(id).catch(() => undefined);
+    return this.verified.has(id);
   }
 
   status(id: ModelId): ModelStatus {
@@ -139,15 +149,28 @@ export class ModelManager extends EventEmitter<{ progress: [ModelProgressEvent] 
     this.emit('progress', this.status(id));
   }
 
-  /** Discover existing installs without trusting markers, including pre-marker installs. */
+  /** Checks every install not already verified this session. Sequential to spare the disk. */
   async discover(): Promise<void> {
-    // Sequential hashing avoids saturating disks with several large models at startup.
     for (const id of MODEL_IDS) {
-      await this.verify(id).catch(() => undefined);
+      if (!this.verified.has(id)) await this.check(id).catch(() => undefined);
     }
   }
 
+  /**
+   * Launch-time check: compares file stamps with the marker written after the last full
+   * verification and hashes only files that changed. Installs without a marker are hashed
+   * in full once.
+   */
+  check(id: ModelId): Promise<void> {
+    return this.run(id, true);
+  }
+
+  /** Explicit verification: hashes every byte regardless of the marker. */
   verify(id: ModelId): Promise<void> {
+    return this.run(id, false);
+  }
+
+  private run(id: ModelId, trustMarker: boolean): Promise<void> {
     const controller = this.controller(id);
     return this.enqueue(id, async () => {
       this.verified.delete(id);
@@ -155,10 +178,23 @@ export class ModelManager extends EventEmitter<{ progress: [ModelProgressEvent] 
       try {
         controller.signal.throwIfAborted();
         assertSafePath(this.modelsRoot);
-        if (!fs.existsSync(this.directory(id))) return;
-        this.active.set(id, { controller, bytesDone: 0, state: 'verifying' });
-        this.emit('progress', this.status(id));
-        const verified = await verifyFiles(this.directory(id), inventory(id), controller.signal);
+        const directory = this.directory(id);
+        if (!fs.existsSync(directory)) return;
+        const files = inventory(id);
+        let only: Set<string> | undefined;
+        if (trustMarker) {
+          const [current, recorded] = await Promise.all([snapshot(directory, files), readMarker(directory)]);
+          only = changedFiles(files, current, recorded);
+        }
+        if (!only || only.size) {
+          this.active.set(id, { controller, bytesDone: 0, state: 'verifying' });
+          this.emit('progress', this.status(id));
+          const stamps = await verifyFiles(directory, files, controller.signal, only);
+          controller.signal.throwIfAborted();
+          await writeMarker(directory, files, stamps);
+        }
+        // Writing the marker touches the directory, so the cached snapshot is taken last.
+        const verified = await snapshot(directory, files);
         controller.signal.throwIfAborted();
         this.verified.set(id, verified);
       } catch (error) {
@@ -248,8 +284,10 @@ export class ModelManager extends EventEmitter<{ progress: [ModelProgressEvent] 
       }
       job.state = 'verifying';
       report(true);
-      await verifyFiles(staging, files, controller.signal);
+      const stamps = await verifyFiles(staging, files, controller.signal);
       controller.signal.throwIfAborted();
+      // Renaming the staging directory keeps every file's stamp, so the marker stays valid.
+      await writeMarker(staging, files, stamps);
       assertSafePath(this.modelsRoot);
       this.verified.delete(id);
       if (fs.existsSync(finalDir)) {
@@ -262,7 +300,9 @@ export class ModelManager extends EventEmitter<{ progress: [ModelProgressEvent] 
       promoted = true;
       // Cancellation during promotion must not leave an installed model behind.
       controller.signal.throwIfAborted();
-      this.verified.set(id, snapshot(finalDir, files));
+      const verified = await snapshot(finalDir, files);
+      controller.signal.throwIfAborted();
+      this.verified.set(id, verified);
     } catch (error) {
       this.verified.delete(id);
       if (promoted) await fs.promises.rm(finalDir, { recursive: true, force: true });

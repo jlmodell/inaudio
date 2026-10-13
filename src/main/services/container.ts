@@ -5,9 +5,10 @@ import {
   sttModelIdSchema,
   ttsModelIdSchema,
   type ModelId,
+  type ModelKind,
   type ModelStatus,
 } from '@shared/domain/models';
-import type { AudioDevice, AppCommand, SystemStatus } from '@shared/domain/system';
+import type { AudioDevice, AppCommand, SystemStatus, WorkerHealth } from '@shared/domain/system';
 import { RESERVED_DEVICE_IDS, type Settings, type SettingsPatch } from '@shared/domain/settings';
 import { MAX_TRANSCRIPT_CHARS } from '@shared/domain/history';
 import type { AppPaths } from '../app/paths';
@@ -29,7 +30,9 @@ export interface Services {
   settings: SettingsStore;
   history: HistoryRepository;
   models: ModelManager;
-  inference: InferenceHost;
+  /** Speech recognition and synthesis run in separate workers so neither waits on the other. */
+  stt: InferenceHost;
+  tts: InferenceHost;
   inserter: TextInserter;
   shortcuts: ShortcutService;
   tray: TrayService;
@@ -58,6 +61,56 @@ export interface Services {
   readClipboard(): Promise<string>;
 }
 
+interface Job<T> {
+  operation: () => Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+  priority: number;
+  order: number;
+}
+
+/** One model operation at a time, highest priority first. */
+function createQueue(closing: () => boolean) {
+  const jobs: Job<unknown>[] = [];
+  let running = false;
+  let order = 0;
+  let resolveIdle: () => void = () => undefined;
+  let idle: Promise<void> = Promise.resolve();
+  async function drain(): Promise<void> {
+    try {
+      while (jobs.length) {
+        const job = jobs.shift();
+        if (!job) continue;
+        try {
+          job.resolve(await job.operation());
+        } catch (error) {
+          job.reject(error);
+        }
+      }
+    } finally {
+      running = false;
+      resolveIdle();
+      resolveIdle = () => undefined;
+    }
+  }
+  return {
+    serial<T>(operation: () => Promise<T>, priority = 0): Promise<T> {
+      if (closing()) return Promise.reject(new Error('Application is shutting down'));
+      const job = new Promise<T>((resolve, reject) => {
+        jobs.push({ operation, resolve, reject, priority, order: order++ } as Job<unknown>);
+      });
+      jobs.sort((left, right) => right.priority - left.priority || left.order - right.order);
+      if (!running) {
+        running = true;
+        idle = new Promise<void>((resolve) => { resolveIdle = resolve; });
+        void drain();
+      }
+      return job;
+    },
+    idle: () => idle,
+  };
+}
+
 export function createServices(options: {
   paths: AppPaths;
   tray: TrayService;
@@ -67,13 +120,20 @@ export function createServices(options: {
   command(command: AppCommand): boolean;
   /** Brings the capturing window back, because capture needs a live renderer. */
   showWindow(): void;
+  /** Tells the app window its status snapshot is stale. Called at most once per batch. */
+  statusChanged(): void;
 }): Services {
   const { paths } = options;
   const settings = new SettingsStore(paths.settings);
   const companion = new CompanionService(paths, settings);
   const updater = new UpdaterService(paths.data, settings.get().updates);
-  const inference = new InferenceHost();
-  const models = new ModelManager(paths.models, paths.downloads, (id) => inference.isLoaded(id));
+  const hosts: Record<ModelKind, InferenceHost> = {
+    stt: new InferenceHost('Speech Recognition'),
+    tts: new InferenceHost('Speech Synthesis'),
+  };
+  const kindOf = (id: ModelId): ModelKind => MODEL_CATALOG[id].kind;
+  const isLoaded = (id: ModelId): boolean => hosts[kindOf(id)].isLoaded(id);
+  const models = new ModelManager(paths.models, paths.downloads, isLoaded);
   const history = new HistoryRepository(paths.database);
   const inserter = new TextInserter();
   // The capturing window is the only source of device ids, so its last report doubles as
@@ -100,17 +160,17 @@ export function createServices(options: {
     }
     return settings.update(patch);
   }
+  const installedSttModels = () =>
+    MODEL_IDS.filter((id) => kindOf(id) === 'stt' && models.isInstalled(id)).map(
+      (id) => ({ id, label: MODEL_CATALOG[id].name }),
+    );
   const overlay = new OverlayController({
     settings: () => settings.get(),
     window: options.window,
     // The overlay offers exactly what the tray offers: the last enumeration this process
     // received, and the recognition models actually on disk.
     devices: () => reportedDevices,
-    models: () =>
-      models
-        .list()
-        .filter((model) => model.kind === 'stt' && models.isInstalled(model.id))
-        .map((model) => ({ id: model.id, label: MODEL_CATALOG[model.id].name })),
+    models: installedSttModels,
   });
   const dictation = new DictationController({
     settings: () => settings.get(),
@@ -119,6 +179,7 @@ export function createServices(options: {
     overlay,
     onState: (state) => {
       options.tray.setPhase(state.phase, state.startedAt);
+      companion.setDictating(state.phase === 'listening' || state.phase === 'transcribing' || state.phase === 'inserting');
       if (state.phase === 'listening') companion.react('dictation.started', 'listening');
       else if (state.phase === 'transcribing') companion.react('dictation.stopped', 'transcribing');
       else if (state.phase === 'idle') companion.react('app.idle', 'idle');
@@ -127,50 +188,12 @@ export function createServices(options: {
   });
   type Lifecycle = Pick<ModelStatus, 'loadState' | 'health' | 'lastUsedAt' | 'error'>;
   const lifecycle = new Map<ModelId, Lifecycle>();
-  interface Job<T> {
-    operation: () => Promise<T>;
-    resolve(value: T): void;
-    reject(error: unknown): void;
-    priority: number;
-    order: number;
-  }
-  const jobs: Job<unknown>[] = [];
-  let running = false;
-  let order = 0;
-  let resolveIdle: () => void = () => undefined;
-  let idle: Promise<void> = Promise.resolve();
   let closing = false;
-  let idleTimer: NodeJS.Timeout | undefined;
-  function serial<T>(operation: () => Promise<T>, priority = 0): Promise<T> {
-    if (closing) return Promise.reject(new Error('Application is shutting down'));
-    const job = new Promise<T>((resolve, reject) => {
-      jobs.push({ operation, resolve, reject, priority, order: order++ });
-    });
-    jobs.sort((left, right) => right.priority - left.priority || left.order - right.order);
-    if (!running) {
-      running = true;
-      idle = new Promise<void>((resolve) => { resolveIdle = resolve; });
-      void drain();
-    }
-    return job;
-  }
-  async function drain(): Promise<void> {
-    try {
-      while (jobs.length) {
-        const job = jobs.shift();
-        if (!job) continue;
-        try {
-          job.resolve(await job.operation());
-        } catch (error) {
-          job.reject(error);
-        }
-      }
-    } finally {
-      running = false;
-      resolveIdle();
-      resolveIdle = () => undefined;
-    }
-  }
+  const queues: Record<ModelKind, ReturnType<typeof createQueue>> = {
+    stt: createQueue(() => closing),
+    tts: createQueue(() => closing),
+  };
+  const idleTimers: Partial<Record<ModelKind, NodeJS.Timeout>> = {};
   function state(id: ModelId): Lifecycle {
     let value = lifecycle.get(id);
     if (!value) {
@@ -183,8 +206,8 @@ export function createServices(options: {
     const current = settings.get();
     return models.list().map((model) => {
       const value = state(model.id);
-      const installed = models.isInstalled(model.id);
-      const loaded = inference.isLoaded(model.id);
+      const { installed } = model;
+      const loaded = isLoaded(model.id);
       return { ...model, ...value, error: value.error ?? model.error, installed, loaded,
         active: current[model.kind].modelId === model.id,
         loadState: loaded && value.loadState !== 'unloading' ? 'loaded' : value.loadState === 'loaded' ? 'unloaded' : value.loadState,
@@ -192,46 +215,67 @@ export function createServices(options: {
       };
     });
   }
-  function notify(): void {
-    options.tray.setModels(modelStatuses());
-    inference.emit('health', inference.getHealth());
+  function workerHealth(): WorkerHealth {
+    // The status bar reports the dictation engine; synthesis contributes its loaded model.
+    return { ...hosts.stt.getHealth(), loadedTts: hosts.tts.getHealth().loadedTts };
   }
-  function scheduleIdle(): void {
-    clearTimeout(idleTimer);
+  /**
+   * Health and progress events arrive in bursts (starting, ready, busy, ready...). Each one
+   * used to rebuild the tray menu and make the window refetch its status, so they are
+   * batched into a single flush after the current turn.
+   */
+  let flushPending = false;
+  let announce = false;
+  function notify(announceStatus = true): void {
+    announce ||= announceStatus;
+    if (flushPending) return;
+    flushPending = true;
+    setImmediate(() => {
+      flushPending = false;
+      const shouldAnnounce = announce;
+      announce = false;
+      options.tray.setModels(modelStatuses());
+      if (shouldAnnounce) options.statusChanged();
+    });
+  }
+  function scheduleIdle(kind: ModelKind): void {
+    clearTimeout(idleTimers[kind]);
     if (closing || !settings.get().system.autoUnload) return;
-    const loaded = MODEL_IDS.filter((id) => inference.isLoaded(id));
+    const host = hosts[kind];
+    const loaded = MODEL_IDS.filter((id) => kindOf(id) === kind && host.isLoaded(id));
     if (!loaded.length) return;
     const latestUse = Math.max(...loaded.map((id) => state(id).lastUsedAt ?? Date.now()));
     const delay = Math.max(1, latestUse + settings.get().system.idleMinutes * 60_000 - Date.now());
-    idleTimer = setTimeout(() => {
-      void serial(async () => {
+    const timer = setTimeout(() => {
+      void queues[kind].serial(async () => {
         const current = settings.get().system;
-        const resident = MODEL_IDS.filter((id) => inference.isLoaded(id));
+        const resident = MODEL_IDS.filter((id) => kindOf(id) === kind && host.isLoaded(id));
         if (current.autoUnload && resident.length && resident.every((id) => Date.now() - (state(id).lastUsedAt ?? Date.now()) >= current.idleMinutes * 60_000)) {
           const next = resident[0];
           if (next) await unload(next);
         }
-      }).catch(console.error).finally(scheduleIdle);
+      }).catch(console.error).finally(() => scheduleIdle(kind));
     }, delay);
-    idleTimer.unref();
+    timer.unref();
+    idleTimers[kind] = timer;
   }
   async function unload(id: ModelId): Promise<void> {
-    if (!inference.isLoaded(id)) { state(id).loadState = 'unloaded'; notify(); return; }
-    // Worker termination releases all native handles, including the other model kind.
-    const resident = MODEL_IDS.filter((candidate) => inference.isLoaded(candidate));
-    resident.forEach((candidate) => { state(candidate).loadState = 'unloading'; });
+    const kind = kindOf(id);
+    if (!isLoaded(id)) { state(id).loadState = 'unloaded'; notify(); return; }
+    state(id).loadState = 'unloading';
     notify();
-    try { await inference.unload(MODEL_CATALOG[id].kind); }
+    // Worker termination releases the native handles; the other kind's worker is untouched.
+    try { await hosts[kind].unload(kind); }
     finally {
-      resident.forEach((candidate) => { state(candidate).loadState = 'unloaded'; });
+      state(id).loadState = 'unloaded';
       notify();
     }
   }
   async function load(id: ModelId): Promise<void> {
-    if (inference.isLoaded(id)) return;
-    if (!models.isInstalled(id)) throw new Error(`${MODEL_CATALOG[id].name} is not installed`);
+    if (isLoaded(id)) return;
+    if (!(await models.revalidate(id))) throw new Error(`${MODEL_CATALOG[id].name} is not installed`);
     const model = MODEL_CATALOG[id];
-    const previous = MODEL_IDS.find((candidate) => MODEL_CATALOG[candidate].kind === model.kind && inference.isLoaded(candidate));
+    const previous = MODEL_IDS.find((candidate) => kindOf(candidate) === model.kind && isLoaded(candidate));
     if (previous) await unload(previous);
     const value = state(id);
     value.loadState = 'loading';
@@ -240,8 +284,8 @@ export function createServices(options: {
     try {
       const dir = models.directory(id);
       const threads = settings.get().stt.threads;
-      if (model.layout.kind === 'stt') await inference.loadStt({ type: 'stt:load', modelId: id, dir, layout: model.layout, threads });
-      else await inference.loadTts({ type: 'tts:load', modelId: id, dir, layout: model.layout, threads: Math.min(threads, 4) });
+      if (model.layout.kind === 'stt') await hosts.stt.loadStt({ type: 'stt:load', modelId: id, dir, layout: model.layout, threads });
+      else await hosts.tts.loadTts({ type: 'tts:load', modelId: id, dir, layout: model.layout, threads: Math.min(threads, 4) });
       value.loadState = 'loaded';
       value.health = 'healthy';
       value.lastUsedAt = Date.now();
@@ -250,33 +294,36 @@ export function createServices(options: {
       value.health = 'error';
       value.error = error instanceof Error ? error.message : String(error);
       throw error;
-    } finally { notify(); scheduleIdle(); }
+    } finally { notify(); scheduleIdle(model.kind); }
   }
-  inference.on('health', (health) => {
-    if (health.state === 'crashed') {
-      for (const value of lifecycle.values()) {
-        if (value.loadState === 'loaded' || value.loadState === 'loading') {
-          value.loadState = 'error'; value.health = 'error'; value.error = health.lastError;
+  for (const kind of ['stt', 'tts'] as const) {
+    hosts[kind].on('health', (health) => {
+      if (health.state === 'crashed') {
+        for (const [id, value] of lifecycle) {
+          if (kindOf(id) === kind && (value.loadState === 'loaded' || value.loadState === 'loading')) {
+            value.loadState = 'error'; value.health = 'error'; value.error = health.lastError;
+          }
         }
       }
-    }
-    options.tray.setModels(modelStatuses());
-  });
+      notify();
+    });
+  }
   models.on('progress', (event) => {
     const id = event.id as ModelId;
     if (event.state === 'installed' || event.state === 'missing') {
       const value = state(id);
       value.error = undefined;
-      value.health = inference.isLoaded(id) ? 'healthy' : 'unchecked';
-      if (!inference.isLoaded(id)) value.loadState = 'unloaded';
+      value.health = isLoaded(id) ? 'healthy' : 'unchecked';
+      if (!isLoaded(id)) value.loadState = 'unloaded';
     }
-    notify();
+    // Download ticks only refresh the tray; the window follows them through model progress.
+    notify(event.state !== 'downloading');
   });
   settings.on('change', (next, previous) => {
-    scheduleIdle();
     for (const kind of ['stt', 'tts'] as const) {
+      scheduleIdle(kind);
       if (next[kind].modelId !== previous[kind].modelId || (kind === 'stt' && next.stt.threads !== previous.stt.threads)) {
-        void serial(async () => {
+        void queues[kind].serial(async () => {
           const oldId = previous[kind].modelId;
           if (settings.get()[kind].modelId !== oldId || next.stt.threads !== previous.stt.threads) await unload(oldId);
         }).catch(console.error);
@@ -286,17 +333,14 @@ export function createServices(options: {
   });
 
   return {
-    paths, settings, history, models, inference, inserter, companion, updater,
+    paths, settings, history, models, stt: hosts.stt, tts: hosts.tts, inserter, companion, updater,
     shortcuts: options.shortcuts, tray: options.tray, window: options.window,
     overlay, dictation, reportDevices, updateSettings: applySettings,
     listDevices: () => reportedDevices,
-    installedSttModels: () =>
-      MODEL_IDS.filter((id) => MODEL_CATALOG[id].kind === 'stt' && models.isInstalled(id)).map(
-        (id) => ({ id, label: MODEL_CATALOG[id].name }),
-      ),
+    installedSttModels,
     status: () => {
       const base = collectSystemStatus({
-        paths, models, inference, inserter,
+        paths, worker: workerHealth(), inserter,
         shortcuts: options.shortcuts,
         overlay,
         tray: options.tray,
@@ -312,15 +356,18 @@ export function createServices(options: {
       } };
     },
     modelStatuses,
-    ensureLoaded: (id) => serial(() => load(id), MODEL_CATALOG[id].kind === 'stt' ? 100 : 0),
-    runModel: (id, operation, priority = 0) => serial(async () => {
-      clearTimeout(idleTimer);
-      await load(id);
-      try { return await operation(); }
-      finally { state(id).lastUsedAt = Date.now(); notify(); scheduleIdle(); }
-    }, priority),
-    unloadModel: (id) => serial(async () => { await unload(id); scheduleIdle(); }),
-    activateModel: (id) => serial(async () => {
+    ensureLoaded: (id) => queues[kindOf(id)].serial(() => load(id), 100),
+    runModel: (id, operation, priority = 0) => {
+      const kind = kindOf(id);
+      return queues[kind].serial(async () => {
+        clearTimeout(idleTimers[kind]);
+        await load(id);
+        try { return await operation(); }
+        finally { state(id).lastUsedAt = Date.now(); notify(); scheduleIdle(kind); }
+      }, priority);
+    },
+    unloadModel: (id) => queues[kindOf(id)].serial(async () => { await unload(id); scheduleIdle(kindOf(id)); }),
+    activateModel: (id) => queues[kindOf(id)].serial(async () => {
       // A model only ever becomes active in the kind it belongs to, so the id is narrowed
       // by the catalog rather than asserted: what is persisted is always schema-valid.
       const model = MODEL_CATALOG[id];
@@ -337,8 +384,8 @@ export function createServices(options: {
       }
       notify();
     }),
-    verifyModel: (id) => serial(async () => {
-      await models.cancel(id);
+    verifyModel: (id) => queues[kindOf(id)].serial(async () => {
+      models.cancel(id);
       await unload(id);
       try { await models.verify(id); await load(id); }
       catch (error) {
@@ -346,22 +393,24 @@ export function createServices(options: {
         notify(); throw error;
       }
     }),
-    removeModel: (id) => serial(async () => {
-      await models.cancel(id);
+    removeModel: (id) => queues[kindOf(id)].serial(async () => {
+      models.cancel(id);
       await unload(id);
       await models.remove(id);
-      lifecycle.delete(id); notify(); scheduleIdle();
+      lifecycle.delete(id); notify(); scheduleIdle(kindOf(id));
     }),
     dispose: async () => {
       closing = true;
-      clearTimeout(idleTimer);
+      clearTimeout(idleTimers.stt);
+      clearTimeout(idleTimers.tts);
       dictation.dispose();
       companion.dispose();
       overlay.destroy();
+      inserter.dispose();
       models.cancelAll();
-      await inference.stop();
-      await idle;
-      await inference.stop();
+      await Promise.all([hosts.stt.stop(), hosts.tts.stop()]);
+      await Promise.all([queues.stt.idle(), queues.tts.idle()]);
+      await Promise.all([hosts.stt.stop(), hosts.tts.stop()]);
       history.close();
     },
     readClipboard: async () => (await clipboard.readText()).slice(0, MAX_TRANSCRIPT_CHARS),
