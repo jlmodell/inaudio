@@ -8,6 +8,7 @@ import { cn } from '@renderer/lib/cn';
 import { useSettings, useUpdateSettings } from '@renderer/lib/queries';
 import { useDictation } from '@renderer/stores/dictation-store';
 import { useUi, type Route } from '@renderer/stores/ui-store';
+import { EngineStatus } from './engine-status';
 
 const NAV: { route: Route; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { route: 'dictation', label: 'Dictation', icon: Mic },
@@ -77,6 +78,9 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
         </NavigationMenu.List>
       </NavigationMenu.Root>
 
+      <div className="px-3 pb-2">
+        <EngineStatus collapsed={collapsed} />
+      </div>
       <div className={cn('flex px-3', collapsed ? 'justify-center' : 'justify-start')}>
         <IconButton
           label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
