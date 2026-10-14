@@ -111,6 +111,11 @@ export interface OverlayState extends DictationState {
    * pill sits against this edge and panels open away from it.
    */
   anchor: 'top' | 'bottom';
+  /**
+   * The horizontal edge the pill holds. The pill is as wide as what it shows, and the main
+   * process sizes the window from the same rule, so leftover room is transparent margin.
+   */
+  align: 'left' | 'center' | 'right';
   /** The app's accent tone, so the overlay matches it without reading settings itself. */
   accentTone: AccentTone;
   showTimer: boolean;

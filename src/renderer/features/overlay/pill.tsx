@@ -83,7 +83,7 @@ export function Pill({ state }: { state: OverlayState }) {
       onMouseMove={hover.onMouseMove}
       onMouseLeave={hover.onMouseLeave}
       className={cn(
-        'flex h-11 w-full items-center gap-2.5 overflow-hidden rounded-[22px] border border-line bg-surface px-3.5',
+        'flex h-11 w-max max-w-full items-center gap-2.5 overflow-hidden rounded-[22px] border border-line bg-surface px-3.5',
         'shadow-[0_6px_20px_rgb(0_0_0/0.14)] dark:shadow-[0_6px_22px_rgb(0_0_0/0.5)]',
         state.animate && 'transition-opacity duration-150',
         // At rest the pill sits back a little; working, armed or failing it comes forward.

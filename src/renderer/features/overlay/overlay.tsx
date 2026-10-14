@@ -36,6 +36,7 @@ export function Overlay() {
       className={cn(
         'flex h-full flex-col p-4',
         state.anchor === 'top' ? 'justify-start' : 'justify-end',
+        state.align === 'left' ? 'items-start' : state.align === 'right' ? 'items-end' : 'items-center',
       )}
     >
       <Pill state={state} />

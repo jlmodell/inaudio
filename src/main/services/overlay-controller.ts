@@ -5,7 +5,8 @@ import type { AudioDevice, DictationState, OverlayState } from '@shared/domain/s
 import { EVENTS } from '@shared/ipc/channels';
 import { isWayland, overlaySupport } from '../app/platform';
 import { registerSurface } from '../security/surfaces';
-import { createOverlayWindow, OVERLAY_MARGIN, overlaySize } from '../windows/overlay-window';
+import { createOverlayWindow } from '../windows/overlay-window';
+import { OVERLAY_MARGIN, overlayAlign, overlaySize, type OverlayContent } from '../windows/overlay-size';
 
 interface OverlayOptions {
   settings(): Settings;
@@ -185,11 +186,7 @@ export class OverlayController {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
     const { overlay } = this.options.settings();
-    const { width, height } = overlaySize(overlay, {
-      menuOpen: this.menu,
-      message: this.dictation.phase === 'error' && this.dictation.message !== '',
-      controls: this.armed(),
-    });
+    const { width, height } = overlaySize(overlay, this.content());
     const area = this.display().workArea;
     const anchorTop = overlay.position.startsWith('top');
 
@@ -210,6 +207,20 @@ export class OverlayController {
       width,
       height,
     });
+  }
+
+  /** What the pill draws right now. The window is sized from this, not from the settings alone. */
+  private content(): OverlayContent {
+    const settings = this.options.settings();
+    return {
+      phase: this.dictation.phase,
+      armed: this.armed(),
+      message: this.dictation.phase === 'error' && this.dictation.message !== '',
+      menuOpen: this.menu,
+      devices: this.options.devices().length,
+      language: MODEL_CATALOG[settings.stt.modelId].languages.length > 1,
+      reading: null,
+    };
   }
 
   private display(): Display {
@@ -246,6 +257,7 @@ export class OverlayController {
       // `place()` pins this edge and grows the window on the free side, so the renderer
       // aligns the pill here and opens its panels into the room it was given.
       anchor: overlay.position.startsWith('top') ? 'top' : 'bottom',
+      align: overlayAlign(overlay.position),
       accentTone: appearance.accentTone,
       // The window was sized from these same four flags, so the renderer draws a section
       // exactly when the box has room for it. It never decides its own extent.
