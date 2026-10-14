@@ -2,6 +2,7 @@ import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
 import type { CompanionPosition, CompanionSettings } from '@shared/domain/companion';
 import { APP_ORIGIN } from '../security/app-protocol';
+import type { FocusTarget } from '../services/focus-probe';
 
 export const COMPANION_SIZE = 240;
 export const COMPANION_HEIGHT = 180;
@@ -50,6 +51,19 @@ export function createCompanionWindow(): BrowserWindow {
   return win;
 }
 
+/** Tall focused fields (a whole document) are no place to perch above; the cursor is used instead. */
+const MAX_ANCHOR_FIELD_HEIGHT = 160;
+
+/** The horizontal point and vertical span "Above active area" sits against. */
+function activeArea(focus: FocusTarget | null | undefined): { x: number; top: number; bottom: number } {
+  if (focus?.kind === 'caret') return { x: focus.x, top: focus.y, bottom: focus.y + focus.height };
+  if (focus?.kind === 'element' && focus.height <= MAX_ANCHOR_FIELD_HEIGHT) {
+    return { x: focus.x + Math.round(focus.width / 2), top: focus.y, bottom: focus.y + focus.height };
+  }
+  const cursor = screen.getCursorScreenPoint();
+  return { x: cursor.x, top: cursor.y, bottom: cursor.y };
+}
+
 export function placeCompanion(
   win: BrowserWindow,
   position: CompanionPosition,
@@ -58,8 +72,12 @@ export function placeCompanion(
     edgeMargin: 56,
     keepAwayFromText: true,
   },
+  /** Where the user is typing, when known. Only "Above active area" uses it. */
+  focus?: FocusTarget | null,
 ): void {
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const focusArea = position === 'focus-area';
+  const area = focusArea ? activeArea(focus) : null;
+  const display = screen.getDisplayNearestPoint(area ? { x: area.x, y: area.top } : screen.getCursorScreenPoint());
   const { x, y, width, height } = display.workArea;
   const size = Math.round(128 * scale);
   const windowWidth = Math.max(size + 48, COMPANION_SIZE);
@@ -68,18 +86,18 @@ export function placeCompanion(
   const left = position.endsWith('left') ? x + margin : x + width - windowWidth - margin;
   const top = position.startsWith('top') ? y + margin : y + height - windowHeight - margin;
   const nearMicrophone = position === 'near-microphone';
-  const focusArea = position === 'focus-area';
-  const cursor = screen.getCursorScreenPoint();
   const focusGap = options.keepAwayFromText ? 72 : 36;
-  const unclampedX = focusArea
-    ? cursor.x - Math.round(windowWidth / 2)
+  const unclampedX = area
+    ? area.x - Math.round(windowWidth / 2)
     : nearMicrophone
       ? x + Math.round(width / 2) - Math.round(windowWidth / 2)
       : left;
-  const focusY = cursor.y - windowHeight - focusGap >= y + margin
-    ? cursor.y - windowHeight - focusGap
-    : cursor.y + focusGap;
-  const unclampedY = focusArea
+  const focusY = !area
+    ? 0
+    : area.top - windowHeight - focusGap >= y + margin
+      ? area.top - windowHeight - focusGap
+      : area.bottom + focusGap;
+  const unclampedY = area
     ? focusY
     : nearMicrophone
       ? y + margin

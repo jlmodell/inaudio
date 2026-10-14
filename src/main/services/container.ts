@@ -125,7 +125,7 @@ export function createServices(options: {
 }): Services {
   const { paths } = options;
   const settings = new SettingsStore(paths.settings);
-  const companion = new CompanionService(paths, settings);
+  const companion = new CompanionService(settings);
   const updater = new UpdaterService(paths.data, settings.get().updates);
   const hosts: Record<ModelKind, InferenceHost> = {
     stt: new InferenceHost('Speech Recognition'),

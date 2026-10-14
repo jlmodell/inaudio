@@ -1,8 +1,9 @@
 import { clipboard, systemPreferences } from 'electron';
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { InsertionSupport } from '@shared/domain/system';
+import { PowerShellHelper, windowsPowerShell } from './powershell-helper';
 
 interface PasteCommand {
   file: string;
@@ -37,9 +38,8 @@ function resolvePasteCommand(): PasteCommand | null {
         method: 'System Events (osascript)',
       };
     case 'win32': {
-      const root = process.env.SystemRoot ?? 'C:\\Windows';
       return {
-        file: path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        file: windowsPowerShell(),
         args: [
           '-NoProfile',
           '-NonInteractive',
@@ -91,83 +91,23 @@ const HELPER_SCRIPT = [
  * is ever written to it; the transcript still travels through the clipboard alone.
  */
 class PasteHelper {
-  private child: ChildProcessWithoutNullStreams | null = null;
-  private ready = false;
-  private buffer = '';
-  private waiter: { resolve(line: string): void; reject(error: Error): void } | null = null;
+  private readonly helper: PowerShellHelper;
 
-  constructor(private readonly file: string) {}
+  constructor(file: string) {
+    this.helper = new PowerShellHelper(file, HELPER_SCRIPT, HELPER_TIMEOUT_MS, 'Paste helper');
+  }
 
   /** Starts the helper in the background; true once it can take a paste. */
   warm(): boolean {
-    if (!this.child) this.start();
-    return this.ready;
+    return this.helper.warm();
   }
 
   async paste(): Promise<void> {
-    if (!this.child || !this.ready) throw new Error('Paste helper is not ready');
-    const reply = this.next();
-    this.child.stdin.write('paste\n');
-    if ((await reply) !== 'ok') throw new Error('Paste helper failed');
+    if ((await this.helper.request('paste')) !== 'ok') throw new Error('Paste helper failed');
   }
 
   dispose(): void {
-    const child = this.child;
-    this.reset(new Error('Paste helper stopped'));
-    child?.kill();
-  }
-
-  private start(): void {
-    const child = spawn(this.file, ['-NoProfile', '-NonInteractive', '-Command', HELPER_SCRIPT], {
-      windowsHide: true,
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    this.child = child;
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (data: string) => {
-      this.buffer += data;
-      let index: number;
-      while ((index = this.buffer.indexOf('\n')) >= 0) {
-        const line = this.buffer.slice(0, index).trim();
-        this.buffer = this.buffer.slice(index + 1);
-        if (!this.ready && line === 'ready') this.ready = true;
-        else this.settle(line);
-      }
-    });
-    child.stderr.resume();
-    child.stdin.on('error', () => undefined);
-    child.once('error', (error) => { if (this.child === child) this.reset(error); });
-    child.once('exit', () => { if (this.child === child) this.reset(new Error('Paste helper exited')); });
-  }
-
-  private next(): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // A wedged helper is replaced on the next paste.
-        this.dispose();
-        reject(new Error('Paste helper timed out'));
-      }, HELPER_TIMEOUT_MS);
-      this.waiter = {
-        resolve: (line) => { clearTimeout(timer); resolve(line); },
-        reject: (error) => { clearTimeout(timer); reject(error); },
-      };
-    });
-  }
-
-  private settle(line: string): void {
-    const waiter = this.waiter;
-    this.waiter = null;
-    waiter?.resolve(line);
-  }
-
-  private reset(error: Error): void {
-    this.child = null;
-    this.ready = false;
-    this.buffer = '';
-    const waiter = this.waiter;
-    this.waiter = null;
-    waiter?.reject(error);
+    this.helper.dispose();
   }
 }
 

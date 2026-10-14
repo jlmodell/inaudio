@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import {
   DEFAULT_SETTINGS,
+  coerceSettings,
   mergeSettings,
-  settingsSchema,
   type Settings,
   type SettingsPatch,
 } from '@shared/domain/settings';
@@ -32,18 +32,8 @@ export class SettingsStore extends EventEmitter<{ change: [Settings, Settings] }
 
   private read(): Settings {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')) as unknown;
-      const parsed = settingsSchema.safeParse(raw);
-      if (parsed.success) return parsed.data;
-      // Keep what is still valid from an older or partially broken file.
-      if (raw && typeof raw === 'object') {
-        const rest = Object.fromEntries(Object.entries(raw).filter(([key]) => key !== 'version'));
-        try {
-          return mergeSettings(DEFAULT_SETTINGS, rest as SettingsPatch);
-        } catch {
-          return DEFAULT_SETTINGS;
-        }
-      }
+      // Field by field, so one stale or invalid value in an older file does not reset the rest.
+      return coerceSettings(JSON.parse(fs.readFileSync(this.file, 'utf8')) as unknown);
     } catch {
       // Missing or unreadable file.
     }

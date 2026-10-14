@@ -68,10 +68,8 @@ const api: InaudioApi = {
     clear: () => ipcRenderer.invoke(IPC.historyClear),
   },
   companions: {
-    list: () => ipcRenderer.invoke(IPC.companionList),
     get: () => ipcRenderer.invoke(IPC.companionGet),
     select: (id) => ipcRenderer.invoke(IPC.companionSelect, id),
-    update: (settings) => ipcRenderer.invoke(IPC.companionUpdate, settings),
     setVisibility: (visible) => ipcRenderer.invoke(IPC.companionVisibility, visible),
     hover: (hovering) => ipcRenderer.send(IPC.companionHover, hovering),
     click: () => ipcRenderer.invoke(IPC.companionClick),
@@ -83,6 +81,7 @@ const api: InaudioApi = {
     onSettingsChanged: (listener) => subscribe(EVENTS.settingsChanged, listener),
     onOverlayState: (listener) => subscribe(EVENTS.overlayState, listener),
     onCompanionState: (listener) => subscribe(EVENTS.companionState, listener),
+    onCompanionGaze: (listener) => subscribe(EVENTS.companionGaze, listener),
     onUpdateState: (listener: (status: UpdateStatus) => void) => subscribe(EVENTS.updateState, listener),
   },
 };

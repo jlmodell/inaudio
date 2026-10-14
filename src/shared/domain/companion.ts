@@ -40,35 +40,44 @@ export const companionPositionSchema = z.enum([
 ]);
 export type CompanionPosition = z.infer<typeof companionPositionSchema>;
 export const companionMotionSchema = z.enum(['full', 'reduced', 'off']);
-export const companionBubbleSchema = z.enum(['auto', 'above', 'hidden']);
+export const companionPersonalitySchema = z.enum(['calm', 'playful', 'curious', 'energetic', 'sleepy', 'quiet']);
+export type CompanionPersonality = z.infer<typeof companionPersonalitySchema>;
 
-export const companionPackageSchema = z.object({
-  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
-  displayName: z.string().min(1).max(80),
-  description: z.string().max(400),
-  spritesheetPath: z.string().max(256),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  animation: z.object({
-    frameDurationMs: z.number().int().min(40).max(1000),
-    stateRows: z.partialRecord(
-      z.enum(COMPANION_STATES),
-      z.object({
-        row: z.number().int().min(0).max(31),
-        frameCount: z.number().int().min(1).max(32),
-      }),
-    ),
-  }),
-  frameWidth: z.number().int().min(1).max(1024),
-  frameHeight: z.number().int().min(1).max(1024),
-  columns: z.number().int().min(1).max(32),
-  rows: z.number().int().min(1).max(32),
-  frameCount: z.number().int().min(1).max(256),
-});
-export type CompanionPackage = z.infer<typeof companionPackageSchema>;
+export const COMPANION_IDS = ['lumen', 'moss', 'alain', 'bean', 'nimbus', 'drip', 'nova', 'ember'] as const;
+export type CompanionId = (typeof COMPANION_IDS)[number];
+
+/**
+ * A built-in Blobatar. `seed` is the name the face is hashed from; `shape` pins the
+ * silhouette as a 0–1 position in blobatar's shape bands (styles/blob.ts):
+ * round <.22, organic <.48, boxy <.60, capsule <.70, nub <.79, cloud <.86,
+ * droplet <.915, hexagon <.95, sun <.98, triangle <1.
+ */
+export interface CompanionDefinition {
+  id: CompanionId;
+  displayName: string;
+  description: string;
+  seed: string;
+  shape: number;
+  /** Body hue in degrees. Omitted means the seed picks the colour. */
+  hue?: number;
+}
+
+export const COMPANIONS: readonly CompanionDefinition[] = [
+  { id: 'lumen', displayName: 'Lumen', description: 'Round and steady. Stays close while you talk.', seed: 'lumen', shape: 0.11, hue: 215 },
+  { id: 'moss', displayName: 'Moss', description: 'A lopsided pebble for quiet focus.', seed: 'moss', shape: 0.35, hue: 145 },
+  { id: 'alain', displayName: 'Alain', description: 'Boxy and a little stubborn about getting every word.', seed: 'alain00', shape: 0.54 },
+  { id: 'bean', displayName: 'Bean', description: 'A capsule that perks up when you start speaking.', seed: 'bean', shape: 0.65, hue: 28 },
+  { id: 'nimbus', displayName: 'Nimbus', description: 'A soft cloud that drifts above your work.', seed: 'nimbus', shape: 0.825, hue: 200 },
+  { id: 'drip', displayName: 'Drip', description: 'A droplet that watches each line land.', seed: 'drip', shape: 0.8875, hue: 185 },
+  { id: 'nova', displayName: 'Nova', description: 'A hexagon that notices every change.', seed: 'nova', shape: 0.9325, hue: 265 },
+  { id: 'ember', displayName: 'Ember', description: 'A small sun that celebrates each finished thought.', seed: 'ember', shape: 0.965, hue: 40 },
+];
+
+/** Where the companion's eyes should point, in its own window's client coordinates. */
+export type CompanionGaze = { x: number; y: number } | 'rest' | null;
 
 export interface CompanionSnapshot {
-  companion: CompanionPackage;
+  companion: CompanionDefinition;
   settings: CompanionSettings;
   state: CompanionState;
   event?: CompanionEvent;
@@ -90,155 +99,51 @@ export function companionBubbleText(state: CompanionState, focusArea = false): s
   return 'Ready';
 }
 
-export const companionReactionSchema = z.object({
-  enabled: z.boolean(),
-  state: z.enum(COMPANION_STATES),
-});
-export type CompanionReaction = z.infer<typeof companionReactionSchema>;
+const reactionsSchema = z.record(z.enum(COMPANION_EVENTS), z.boolean());
 
 export const companionSettingsSchema = z.object({
-  version: z.literal(1),
-  activeId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  activeId: z.enum(COMPANION_IDS),
   visible: z.boolean(),
   scale: z.number().min(0.5).max(2),
   position: companionPositionSchema,
   edgeMargin: z.number().int().min(24).max(160),
   keepAwayFromText: z.boolean(),
-  bubble: companionBubbleSchema,
+  showBubble: z.boolean(),
   motion: companionMotionSchema,
   clickThrough: z.boolean(),
   idleSleepMinutes: z.number().int().min(1).max(120),
-  personality: z.enum(['calm', 'playful', 'curious', 'energetic', 'sleepy', 'quiet']),
+  personality: companionPersonalitySchema,
   voiceEnabled: z.boolean(),
   soundEnabled: z.boolean(),
   soundVolume: z.number().min(0).max(1),
-  reactions: z.record(z.enum(COMPANION_EVENTS), companionReactionSchema),
+  eyesFollow: z.boolean(),
+  color: z.enum(['own', 'accent', 'custom']),
+  hue: z.number().int().min(0).max(359),
+  idleMoods: z.boolean(),
+  backdrop: z.enum(['none', 'circle', 'squircle']),
+  /** Which application events the companion reacts to. */
+  reactions: reactionsSchema,
 });
 export type CompanionSettings = z.infer<typeof companionSettingsSchema>;
 
-export const BUILT_IN_COMPANIONS: CompanionPackage[] = [
-  {
-    id: 'lumen',
-    displayName: 'Lumen',
-    description: 'A warm little light that stays close to your voice workflow.',
-    spritesheetPath: 'lumen.svg',
-    animation: {
-      frameDurationMs: 150,
-      stateRows: {
-        idle: { row: 0, frameCount: 4 },
-        listening: { row: 1, frameCount: 4 },
-        thinking: { row: 2, frameCount: 4 },
-        speaking: { row: 3, frameCount: 4 },
-      },
-    },
-    color: '#5b8cff',
-    secondaryColor: '#b7d4ff',
-    frameWidth: 96,
-    frameHeight: 96,
-    columns: 4,
-    rows: 4,
-    frameCount: 16,
-  },
-  {
-    id: 'moss',
-    displayName: 'Moss',
-    description: 'A calm, leafy companion for quiet focus.',
-    spritesheetPath: 'moss.svg',
-    animation: {
-      frameDurationMs: 160,
-      stateRows: {
-        idle: { row: 0, frameCount: 4 },
-        listening: { row: 1, frameCount: 4 },
-        thinking: { row: 2, frameCount: 4 },
-        speaking: { row: 3, frameCount: 4 },
-      },
-    },
-    color: '#58b889',
-    secondaryColor: '#b9efd3',
-    frameWidth: 96,
-    frameHeight: 96,
-    columns: 4,
-    rows: 4,
-    frameCount: 16,
-  },
-  {
-    id: 'ember',
-    displayName: 'Ember',
-    description: 'A bright spark that celebrates each finished thought.',
-    spritesheetPath: 'ember.svg',
-    animation: {
-      frameDurationMs: 110,
-      stateRows: {
-        idle: { row: 0, frameCount: 4 },
-        listening: { row: 1, frameCount: 4 },
-        thinking: { row: 2, frameCount: 4 },
-        speaking: { row: 3, frameCount: 4 },
-      },
-    },
-    color: '#f28b59',
-    secondaryColor: '#ffd0ad',
-    frameWidth: 96,
-    frameHeight: 96,
-    columns: 4,
-    rows: 4,
-    frameCount: 16,
-  },
-  {
-    id: 'nova',
-    displayName: 'Nova',
-    description: 'A curious ring that notices each change in your voice workspace.',
-    spritesheetPath: 'nova.svg',
-    animation: {
-      frameDurationMs: 140,
-      stateRows: {
-        idle: { row: 0, frameCount: 4 },
-        listening: { row: 1, frameCount: 4 },
-        thinking: { row: 2, frameCount: 4 },
-        speaking: { row: 3, frameCount: 4 },
-      },
-    },
-    color: '#8d6be8',
-    secondaryColor: '#e2d7ff',
-    frameWidth: 96,
-    frameHeight: 96,
-    columns: 4,
-    rows: 4,
-    frameCount: 16,
-  },
-];
+/** A settings patch may name any subset of reactions. */
+export const companionSettingsPatchSchema = companionSettingsSchema
+  .extend({ reactions: z.partialRecord(z.enum(COMPANION_EVENTS), z.boolean()) })
+  .partial()
+  .strict();
 
 export const DEFAULT_COMPANION_REACTIONS = Object.fromEntries(
-  COMPANION_EVENTS.map((event) => [
-    event,
-    {
-      enabled: true,
-      state:
-        event === 'dictation.started'
-          ? 'listening'
-          : event === 'model.loading'
-            ? 'thinking'
-            : event === 'model.missing'
-              ? 'model-unavailable'
-            : event === 'app.error'
-              ? 'error'
-              : event === 'companion.clicked'
-                ? 'attention'
-                : event === 'tts.started'
-                  ? 'speaking'
-                  : 'ready',
-    },
-  ]),
-) as Record<CompanionEvent, CompanionReaction>;
+  COMPANION_EVENTS.map((event) => [event, true]),
+) as Record<CompanionEvent, boolean>;
 
 export const DEFAULT_COMPANION_SETTINGS: CompanionSettings = {
-  version: 1,
-  activeId: BUILT_IN_COMPANIONS[0]?.id ?? 'lumen',
+  activeId: 'lumen',
   visible: true,
   scale: 1,
   position: 'bottom-right',
   edgeMargin: 56,
   keepAwayFromText: true,
-  bubble: 'auto',
+  showBubble: true,
   motion: 'full',
   clickThrough: true,
   idleSleepMinutes: 20,
@@ -246,5 +151,33 @@ export const DEFAULT_COMPANION_SETTINGS: CompanionSettings = {
   voiceEnabled: false,
   soundEnabled: false,
   soundVolume: 0.5,
+  eyesFollow: true,
+  color: 'own',
+  hue: 215,
+  idleMoods: true,
+  backdrop: 'none',
   reactions: DEFAULT_COMPANION_REACTIONS,
 };
+
+/**
+ * Rewrites companion settings saved before Blobatar: `bubble` became `showBubble`, and each
+ * reaction was `{ enabled, state }` before it became a boolean. Anything else is passed on
+ * for field-by-field validation.
+ */
+export function migrateLegacyCompanion(raw: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...raw };
+  if (!('showBubble' in raw) && typeof raw.bubble === 'string') next.showBubble = raw.bubble !== 'hidden';
+  delete next.bubble;
+  const reactions: Record<string, boolean> = { ...DEFAULT_COMPANION_REACTIONS };
+  if (raw.reactions && typeof raw.reactions === 'object' && !Array.isArray(raw.reactions)) {
+    for (const event of COMPANION_EVENTS) {
+      const value: unknown = (raw.reactions as Record<string, unknown>)[event];
+      if (typeof value === 'boolean') reactions[event] = value;
+      else if (value && typeof value === 'object' && typeof (value as { enabled?: unknown }).enabled === 'boolean') {
+        reactions[event] = (value as { enabled: boolean }).enabled;
+      }
+    }
+  }
+  next.reactions = reactions;
+  return next;
+}

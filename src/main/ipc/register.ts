@@ -208,10 +208,8 @@ export function registerIpc(services: Services): void {
   handle(IPC.historyList, schemas.historyQuery, (query) => history.list(query));
   handle(IPC.historyRemove, schemas.historyId, (id) => history.remove(id));
   handle(IPC.historyClear, none, () => history.clear());
-  handle(IPC.companionList, none, () => companion.list());
   handle(IPC.companionGet, none, () => companion.snapshot());
   handle(IPC.companionSelect, schemas.companionId, (id) => companion.select(id));
-  handle(IPC.companionUpdate, schemas.companionSettings, (value) => companion.update(value));
   handle(IPC.companionVisibility, schemas.companionVisibility, (visible) => {
     if (visible) companion.show();
     else companion.hide();

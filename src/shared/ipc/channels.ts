@@ -33,10 +33,8 @@ export const IPC = {
   historyList: 'history:list',
   historyRemove: 'history:remove',
   historyClear: 'history:clear',
-  companionList: 'companion:list',
   companionGet: 'companion:get',
   companionSelect: 'companion:select',
-  companionUpdate: 'companion:update',
   companionVisibility: 'companion:visibility',
   companionHover: 'companion:hover',
   companionClick: 'companion:click',
@@ -50,6 +48,7 @@ export const EVENTS = {
   settingsChanged: 'event:settings-changed',
   overlayState: 'event:overlay-state',
   companionState: 'event:companion-state',
+  companionGaze: 'event:companion-gaze',
   updateState: 'event:update-state',
 } as const;
 
