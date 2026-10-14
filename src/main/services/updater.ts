@@ -11,13 +11,6 @@ type UpdateEvents = {
   change: [UpdateStatus];
 };
 
-const UPDATE_FEED = {
-  provider: 'github' as const,
-  owner: 'shikki841',
-  repo: 'inaudio',
-  releaseType: 'release' as const,
-};
-
 /** Main-process owner for signed, HTTPS desktop updates. */
 export class UpdaterService extends EventEmitter<UpdateEvents> {
   private status: UpdateStatus = {
@@ -38,10 +31,8 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.autoDownload = settings.downloadAutomatically;
     autoUpdater.allowPrerelease = false;
-    // Forge-packaged builds do not include electron-builder's app-update.yml.
-    // Configure the public release feed directly so checks do not depend on
-    // that optional file being present.
-    autoUpdater.setFeedURL(UPDATE_FEED);
+    // The feed and the download cache both come from resources/app-update.yml, which
+    // Forge copies in (forge.config.ts extraResource).
     autoUpdater.logger = {
       info: (...args: unknown[]) => console.info('[updater]', ...args),
       warn: (...args: unknown[]) => console.warn('[updater]', ...args),
@@ -68,6 +59,13 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
   async check(): Promise<UpdateStatus> {
     if (!app.isPackaged) return this.update({ state: 'unavailable', canInstall: false });
     if (this.checking) return this.status;
+    if (!fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))) {
+      return this.update({
+        state: 'error',
+        canInstall: false,
+        error: 'This build has no update configuration. Install the latest version from GitHub Releases.',
+      });
+    }
     this.checking = true;
     this.update({ state: 'checking', error: undefined });
     try {

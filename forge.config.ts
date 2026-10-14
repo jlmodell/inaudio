@@ -26,7 +26,9 @@ const config: ForgeConfig = {
     executableName: 'inaudio',
     appBundleId: 'app.inaudio.desktop',
     icon: 'assets/icons/icon',
-    extraResource: ['assets/icons'],
+    // app-update.yml lands in resources/, where electron-updater reads it on every download.
+    // `electron-builder --prepackaged` never writes it, so it ships from here.
+    extraResource: ['assets/icons', 'assets/app-update.yml'],
     asar: {
       unpack: '**/node_modules/sherpa-onnx-*/**/*.{node,so,so.*,dylib,dll}',
     },

@@ -20,6 +20,10 @@ run(npm, ['run', 'package', '--', '--platform', platform, '--arch', arch]);
 if (!existsSync(prepackaged)) {
   throw new Error(`Forge did not produce the expected packaged app: ${prepackaged}`);
 }
+const resources = platform === 'darwin' ? path.join(prepackaged, 'Inaudio.app', 'Contents', 'Resources') : path.join(prepackaged, 'resources');
+if (!existsSync(path.join(resources, 'app-update.yml'))) {
+  throw new Error(`Packaged app has no app-update.yml in ${resources}; updates could not download`);
+}
 
 const targetArgs = platform === 'win32' ? ['--win', 'nsis'] : platform === 'darwin' ? ['--mac', 'zip'] : ['--linux', 'AppImage', 'deb', 'rpm'];
 run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
