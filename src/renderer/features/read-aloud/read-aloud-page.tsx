@@ -139,9 +139,11 @@ export function ReadAloudPage() {
   useEffect(() => {
     if (!session || shownSession.current === session.sessionId) return;
     shownSession.current = session.sessionId;
+    // A draft being written wins: the new session plays on without taking over the editor.
+    if (editing && draft.trim()) return;
     setDraft(session.text);
     setEditing(false);
-  }, [session]);
+  }, [session, editing, draft]);
 
   const active = readAloudActive(state.status) && state.status !== 'capturing';
   const elapsed = useElapsed(state.status === 'playing' && !state.waiting);
@@ -155,8 +157,10 @@ export function ReadAloudPage() {
 
   const play = () => {
     if (paused) control('resume');
-    else if (editing || !hasSession) void readText(draft);
-    else control('replay');
+    else if (editing || !hasSession) {
+      setEditing(false);
+      void readText(draft);
+    } else control('replay');
   };
   const edit = () => {
     if (active) control('stop');

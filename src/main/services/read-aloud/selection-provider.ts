@@ -77,7 +77,11 @@ export class SelectionProvider {
       permission = native.kind === 'permission';
     }
     if (!copyFallback) return { ok: false, reason: permission ? 'permission' : useAccessibility ? 'empty' : 'unsupported' };
-    if (!this.adapter.canCopy()) return { ok: false, reason: permission ? 'permission' : 'unsupported' };
+    if (!this.adapter.canCopy()) {
+      // On macOS the copy helper needs the same Accessibility permission the direct read did.
+      const denied = permission || process.platform === 'darwin';
+      return { ok: false, reason: denied ? 'permission' : 'unsupported' };
+    }
     const copied = await captureByCopy(() => this.adapter.copy(), restoreClipboard);
     return 'text' in copied ? { ok: true, text: copied.text, method: 'copy' } : { ok: false, reason: copied.error };
   }

@@ -22,7 +22,7 @@ interface TrayActions {
   startDictation(): void;
   stopDictation(): void;
   cancelDictation(): void;
-  readClipboard(): void;
+  readSelection(): void;
   pauseReading(): void;
   resumeReading(): void;
   stopReading(): void;
@@ -184,11 +184,11 @@ export class TrayService {
         click: this.actions.cancelDictation,
       },
       {
-        label: 'Read clipboard aloud',
+        label: 'Read selection aloud',
         accelerator: hint(tts.shortcut),
         registerAccelerator: false,
         enabled: !listening && !busy,
-        click: this.actions.readClipboard,
+        click: this.actions.readSelection,
       },
       {
         label: this.reading === 'paused' ? 'Resume reading' : 'Pause reading',

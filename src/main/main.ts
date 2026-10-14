@@ -104,7 +104,7 @@ function bootstrap(): void {
       startDictation: () => command('dictation:start'),
       stopDictation: () => command('dictation:stop'),
       cancelDictation: () => command('dictation:cancel'),
-      readClipboard: () => void services?.readAloud.start({ source: 'clipboard' }),
+      readSelection: () => services?.readAloud.toggleSelection(),
       pauseReading: () => services?.readAloud.pause(),
       resumeReading: () => services?.readAloud.resume(),
       stopReading: () => services?.readAloud.stop(),

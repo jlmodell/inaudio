@@ -197,7 +197,7 @@ export function Pill({ state }: { state: OverlayState }) {
       )}
     >
       {reading ? (
-        <ReadingContent reading={reading} armed={state.armed} controls={menuButton} />
+        <ReadingContent reading={reading} armed={armed} controls={menuButton} />
       ) : (
         <>
           <Readout state={state} />

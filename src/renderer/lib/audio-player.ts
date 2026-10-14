@@ -62,6 +62,8 @@ export class SegmentPlayer {
   private startedAt = 0;
   private sampleRate = 0;
   private deviceId = 'default';
+  /** A pause asked for, so an in-flight play() does not resume the context back out from under it. */
+  private paused = false;
 
   async play(
     samples: Float32Array,
@@ -83,16 +85,24 @@ export class SegmentPlayer {
       onEnded();
     };
     this.source = source;
-    if (context.state === 'suspended') await context.resume();
+    // A pause that landed while the context was opening is honored: the source still starts,
+    // it just stays silent on the suspended context until resume() brings it back.
+    if (this.paused) {
+      if (context.state === 'running') void context.suspend();
+    } else if (context.state === 'suspended') {
+      await context.resume();
+    }
     this.startedAt = context.currentTime;
     source.start();
   }
 
   pause(): void {
+    this.paused = true;
     if (this.context?.state === 'running') void this.context.suspend();
   }
 
   resume(): void {
+    this.paused = false;
     if (this.context?.state === 'suspended') void this.context.resume();
   }
 
@@ -107,6 +117,7 @@ export class SegmentPlayer {
   }
 
   stop(): void {
+    this.paused = false;
     this.stopSource();
     if (this.context && this.context.state !== 'closed') void this.context.close();
     this.context = null;

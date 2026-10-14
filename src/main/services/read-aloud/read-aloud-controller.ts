@@ -61,6 +61,8 @@ export class ReadAloudController {
   /** The synthesis in flight; a newer session or take simply ignores its result. */
   private inflight: { index: number } | null = null;
   private capturing = 0;
+  /** A pause asked for while the selection was still being read; the new session begins paused. */
+  private deferredPause = false;
   private errorTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: ReadAloudOptions) {
@@ -76,9 +78,8 @@ export class ReadAloudController {
     return { session: this.session, state: this.state };
   }
 
-  /** The Read Aloud shortcut: reads the selection, or stops a session that is already running. */
+  /** The Read Aloud shortcut: reads the selection, or stops whatever it started — a capture included. */
   toggleSelection(): void {
-    if (this.state.status === 'capturing') return;
     if (readAloudActive(this.state.status)) this.stop();
     else void this.startFromSelection();
   }
@@ -122,21 +123,28 @@ export class ReadAloudController {
   }
 
   pause(): void {
+    if (this.state.status === 'capturing') {
+      this.deferredPause = true;
+      return;
+    }
     if (this.state.status !== 'playing' && this.state.status !== 'preparing') return;
     this.state = { ...this.state, status: 'paused' };
     this.publish();
+    this.options.companion.react('tts.completed', 'ready');
   }
 
   resume(): void {
     if (this.state.status !== 'paused') return;
     this.state = { ...this.state, status: 'playing' };
     this.publish();
+    this.options.companion.react('tts.started', 'speaking');
     this.pump();
   }
 
   stop(): void {
     if (!readAloudActive(this.state.status) && this.state.status !== 'error') return;
     this.capturing++;
+    this.deferredPause = false;
     const speaking = this.state.sessionId !== null && readAloudActive(this.state.status);
     this.state = { ...this.state, status: this.state.sessionId ? 'stopped' : 'idle', waiting: false };
     this.publish();
@@ -181,6 +189,8 @@ export class ReadAloudController {
   }
 
   private async startFromSelection(): Promise<void> {
+    // One capture at a time: a second start would race the same helper and clipboard.
+    if (this.state.status === 'capturing') return;
     if (readAloudActive(this.state.status)) this.stop();
     const token = ++this.capturing;
     this.state = { ...this.state, status: 'capturing', message: '' };
@@ -211,21 +221,25 @@ export class ReadAloudController {
       this.fail(`${model.name} is not downloaded yet. Open Models to download it.`);
       return;
     }
-    const normalized = normalizeText(raw);
-    const truncated = normalized.length > MAX_READ_ALOUD_CHARS;
+    // Normalization only shrinks whitespace, so capping the input at 4x still answers whether
+    // the text fits while keeping a huge clipboard off the main thread.
+    const normalized = normalizeText(raw.slice(0, MAX_READ_ALOUD_CHARS * 4));
+    const truncated = normalized.length > MAX_READ_ALOUD_CHARS || raw.length > MAX_READ_ALOUD_CHARS * 4;
     const text = truncated ? normalized.slice(0, MAX_READ_ALOUD_CHARS) : normalized;
     const segments = segmentText(text);
     if (!segments.length) {
       this.fail('There is no text to read.');
       return;
     }
+    const paused = this.deferredPause;
+    this.deferredPause = false;
     const sessionId = randomUUID();
     this.session = { sessionId, source, text, segments, truncated };
     this.delivered.clear();
     this.inflight = null;
     this.state = {
       sessionId,
-      status: 'preparing',
+      status: paused ? 'paused' : 'preparing',
       index: 0,
       count: segments.length,
       seek: 0,
@@ -239,7 +253,7 @@ export class ReadAloudController {
     this.options.ensureWindow();
     this.options.send(EVENTS.readAloudSession, this.session);
     this.publish();
-    this.options.companion.react('tts.started', 'speaking');
+    if (!paused) this.options.companion.react('tts.started', 'speaking');
     this.pump();
   }
 
@@ -334,6 +348,7 @@ export class ReadAloudController {
   }
 
   private fail(message: string): void {
+    this.deferredPause = false;
     const wasSpeaking = this.state.sessionId !== null && readAloudActive(this.state.status);
     this.state = { ...this.state, status: 'error', waiting: false, message };
     this.publish();
