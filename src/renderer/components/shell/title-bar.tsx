@@ -1,22 +1,9 @@
-import { Cpu, Mic, Minus, Square, SquareDashed, X } from 'lucide-react';
+import { Minus, Square, SquareDashed, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { MODEL_CATALOG } from '@shared/domain/models';
 import type { AppMenuCommand } from '@shared/domain/system';
 import { IconButton } from '@renderer/components/ui/icon-button';
-import { StatusDot } from '@renderer/components/ui/layout';
 import { api } from '@renderer/lib/api';
-import { useSettings, useSystemStatus } from '@renderer/lib/queries';
-import { useUi } from '@renderer/stores/ui-store';
-
-const ROUTE_LABEL: Record<ReturnType<typeof useUi.getState>['route'], string> = {
-  dictation: 'Dictation',
-  history: 'History',
-  'read-aloud': 'Read Aloud',
-  models: 'Models',
-  audio: 'Audio',
-  companion: 'Companion',
-  settings: 'Settings',
-};
+import { useSystemStatus } from '@renderer/lib/queries';
 
 const MENUS: {
   label: string;
@@ -44,17 +31,11 @@ const MENUS: {
   },
 ];
 
-export function StatusBar() {
-  const route = useUi((s) => s.route);
+/** Menus on the left, window controls on the right; everything between drags the window. */
+export function TitleBar() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLElement>(null);
   const { data: status } = useSystemStatus();
-  const { data: settings } = useSettings();
-  const worker = status?.worker;
-  const stt = settings ? MODEL_CATALOG[settings.stt.modelId] : null;
-  const sttLoaded = !!stt && worker?.loadedStt === stt.id;
-  const tone =
-    worker?.state === 'ready' || worker?.state === 'busy' ? 'success' : worker?.state === 'crashed' ? 'danger' : 'warning';
 
   useEffect(() => {
     const closeMenu = (event: MouseEvent) => {
@@ -65,7 +46,7 @@ export function StatusBar() {
   }, []);
 
   return (
-    <header className="drag grid h-[44px] grid-cols-[1fr_auto_1fr] items-center bg-canvas/80 px-3 backdrop-blur-sm">
+    <header className="drag flex h-[44px] items-center justify-between bg-canvas/80 px-3 backdrop-blur-sm">
       <nav ref={menuBarRef} className="no-drag flex items-center gap-1" aria-label="Application menu">
         {MENUS.map((menu) => {
           const isOpen = openMenu === menu.label;
@@ -103,23 +84,7 @@ export function StatusBar() {
         })}
       </nav>
 
-      <div className="pointer-events-none flex items-center justify-center gap-3 text-xs text-muted">
-        <span className="font-semibold text-ink">{ROUTE_LABEL[route]}</span>
-        {stt && (
-          <span className="inline-flex items-center gap-1">
-            <Mic className="size-3.5" />
-            {stt.name}
-            <StatusDot tone={sttLoaded ? 'success' : 'neutral'} />
-          </span>
-        )}
-        <span className="inline-flex items-center gap-1">
-          <Cpu className="size-3.5" />
-          Engine {worker?.state ?? 'starting'}
-          <StatusDot tone={tone} />
-        </span>
-      </div>
-
-      <div className="no-drag ml-auto flex items-center gap-1">
+      <div className="no-drag flex items-center gap-1">
         <button
           type="button"
           className="rounded-[6px] p-1 text-muted hover:bg-surface hover:text-ink"
