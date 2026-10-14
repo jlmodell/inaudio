@@ -16,10 +16,16 @@ export function LogoMark({ className, title = 'Inaudio' }: { className?: string;
     >
       <circle className="logo-dot" cx="32" cy="9" r="3.25" fill="currentColor" stroke="none" />
       <rect className="logo-capsule" x="25" y="17" width="14" height="24" rx="7" pathLength={1} />
-      <path className="logo-arc" d="M16 29v1a16 16 0 0 0 32 0v-1" pathLength={1} />
+      <g className="logo-pulse logo-pulse-arc">
+        <path className="logo-arc" d="M16 29v1a16 16 0 0 0 32 0v-1" pathLength={1} />
+      </g>
       <path className="logo-stand" d="M32 46v10" pathLength={1} />
-      <path className="logo-tick logo-tick-l" d="M7 25v10" pathLength={1} />
-      <path className="logo-tick logo-tick-r" d="M57 25v10" pathLength={1} />
+      <g className="logo-pulse logo-pulse-tick-l">
+        <path className="logo-tick logo-tick-l" d="M7 25v10" pathLength={1} />
+      </g>
+      <g className="logo-pulse logo-pulse-tick-r">
+        <path className="logo-tick logo-tick-r" d="M57 25v10" pathLength={1} />
+      </g>
     </svg>
   );
 }

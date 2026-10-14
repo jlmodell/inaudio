@@ -115,7 +115,7 @@ export function App() {
   if (isLoading || (!settings && !isError)) {
     return (
       <div className="grid h-full place-items-center bg-canvas text-accent">
-        <LogoMark className="size-14 animate-pulse" />
+        <LogoMark className="size-14" />
       </div>
     );
   }

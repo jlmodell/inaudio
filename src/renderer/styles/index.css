@@ -252,11 +252,13 @@
  * backwards fill to hide each part during its stagger delay. The idle pulse
  * packs ~1.6s of motion into the first 2.5% of a 63s loop delayed to start at
  * ~1min, so it plays about once a minute; hover swaps in a real-time copy of
- * the same motion.
+ * the same motion. The pulse lives on wrapper groups and the draw-on on the
+ * paths inside them, so swapping the pulse never replays the entrance. Reduced
+ * motion keeps the short entrance and drops the pulse: the global rule would
+ * otherwise squeeze the 63s loop into a constant flicker.
  */
 .logo-dot,
-.logo-arc,
-.logo-tick {
+.logo-pulse {
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -270,31 +272,38 @@
   animation: logo-draw 0.3s ease-out 0.9s backwards;
 }
 .logo-arc {
-  animation:
-    logo-draw 0.5s ease-out 0.5s backwards,
-    logo-swell-cycle 63s linear 57s infinite;
+  animation: logo-draw 0.5s ease-out 0.5s backwards;
 }
 .logo-tick-l {
-  animation:
-    logo-draw 0.3s ease-out 1s backwards,
-    logo-hear-cycle 63s linear 57s infinite;
+  animation: logo-draw 0.3s ease-out 1s backwards;
 }
 .logo-tick-r {
-  animation:
-    logo-draw 0.3s ease-out 1.1s backwards,
-    logo-hear-cycle 63s linear 57.12s infinite;
+  animation: logo-draw 0.3s ease-out 1.1s backwards;
 }
-.logo-mark:hover .logo-tick-l,
-.logo-wordmark:hover .logo-tick-l {
+.logo-pulse-arc {
+  animation: logo-swell-cycle 63s linear 57s infinite;
+}
+.logo-pulse-tick-l {
+  animation: logo-hear-cycle 63s linear 57s infinite;
+}
+.logo-pulse-tick-r {
+  animation: logo-hear-cycle 63s linear 57.12s infinite;
+}
+.logo-mark:hover .logo-pulse-tick-l,
+.logo-wordmark:hover .logo-pulse-tick-l {
   animation: logo-hear-now 1.6s ease-out;
 }
-.logo-mark:hover .logo-tick-r,
-.logo-wordmark:hover .logo-tick-r {
+.logo-mark:hover .logo-pulse-tick-r,
+.logo-wordmark:hover .logo-pulse-tick-r {
   animation: logo-hear-now 1.6s ease-out 0.12s;
 }
-.logo-mark:hover .logo-arc,
-.logo-wordmark:hover .logo-arc {
+.logo-mark:hover .logo-pulse-arc,
+.logo-wordmark:hover .logo-pulse-arc {
   animation: logo-swell-now 1.6s ease-out;
+}
+:root[data-motion='reduced'] .logo-pulse,
+:root[data-motion='off'] .logo-pulse {
+  animation: none !important;
 }
 
 @keyframes logo-draw {
@@ -398,5 +407,8 @@
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  .logo-pulse {
+    animation: none !important;
   }
 }
