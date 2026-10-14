@@ -11,6 +11,7 @@ import { useSettings, useSystemStatus, useUpdateActions, useUpdateSettings, useU
 import type { Settings } from '@shared/domain/settings';
 import type { ShortcutStatus } from '@shared/domain/system';
 import { OverlaySettings } from './overlay-settings';
+import { ReadAloudSettings } from './read-aloud-settings';
 import { ShortcutInput } from './shortcut-input';
 import { TraySettings } from './tray-settings';
 
@@ -34,6 +35,10 @@ const SEARCH_ITEMS = [
   { id: 'settings-accent', label: 'Accent color', section: 'Appearance', keywords: 'blue violet green amber rose color' },
   { id: 'settings-dictation', label: 'Dictation', section: 'Dictation', keywords: 'recording transcript clipboard history' },
   { id: 'settings-cues', label: 'Sound cues', section: 'Dictation', keywords: 'audio tones volume start stop error' },
+  { id: 'settings-read-aloud', label: 'Read Aloud', section: 'Read Aloud', keywords: 'speech voice speak tts kokoro selection' },
+  { id: 'settings-read-aloud-voice', label: 'Voice and speed', section: 'Read Aloud', keywords: 'speaker voice speed rate volume loudness' },
+  { id: 'settings-read-aloud-capture', label: 'Read the selection directly', section: 'Read Aloud', keywords: 'accessibility ui automation selected text copy clipboard restore' },
+  { id: 'settings-read-aloud-overlay', label: 'Read Aloud in the overlay', section: 'Read Aloud', keywords: 'pill pause stop dictation follow highlight' },
   { id: 'settings-overlay', label: 'Recording overlay', section: 'Overlay', keywords: 'pill floating window show hide' },
   { id: 'settings-overlay-visibility', label: 'When to show the overlay', section: 'Overlay', keywords: 'always while active hide idle' },
   { id: 'settings-overlay-placement', label: 'Overlay placement', section: 'Overlay', keywords: 'position corner top bottom left right screen' },
@@ -47,6 +52,8 @@ const SEARCH_ITEMS = [
   { id: 'settings-tray-notifications', label: 'Tray notifications', section: 'Tray', keywords: 'system notify alert' },
   { id: 'settings-shortcuts', label: 'Shortcuts', section: 'Shortcuts', keywords: 'keyboard keys accelerator hotkey' },
   { id: 'settings-shortcut-cancel', label: 'Cancel recording shortcut', section: 'Shortcuts', keywords: 'escape abort discard' },
+  { id: 'settings-shortcut-read-pause', label: 'Pause reading shortcut', section: 'Shortcuts', keywords: 'read aloud resume speech' },
+  { id: 'settings-shortcut-read-stop', label: 'Stop reading shortcut', section: 'Shortcuts', keywords: 'read aloud end speech' },
   { id: 'settings-shortcut-overlay', label: 'Overlay shortcut', section: 'Shortcuts', keywords: 'show hide pill' },
   { id: 'settings-performance', label: 'Performance', section: 'Performance', keywords: 'cpu threads power battery memory unload' },
   { id: 'settings-unload', label: 'Unload models when idle', section: 'Performance', keywords: 'memory ram free idle minutes' },
@@ -189,6 +196,15 @@ export function SettingsPage() {
         </Row>
       </Section>
 
+      <Section
+        id="settings-read-aloud"
+        title="Read Aloud"
+        description="Hear selected or typed text in a local Kokoro voice."
+        className="order-3"
+      >
+        <ReadAloudSettings tts={settings.tts} status={status} onChange={(patch) => update.mutate({ tts: patch })} />
+      </Section>
+
       <Section id="settings-overlay" title="Recording overlay" description="The floating pill that shows what dictation is doing." className="order-3">
         <OverlaySettings
           overlay={settings.overlay}
@@ -217,13 +233,44 @@ export function SettingsPage() {
             onChange={(shortcut) => update.mutate({ dictation: { shortcut } })}
           />
         </Row>
-        <Row label="Read clipboard" description={SHORTCUT_NOTE[status.shortcuts.readAloud] ?? undefined}>
+        <Row
+          label="Read selection"
+          description={SHORTCUT_NOTE[status.shortcuts.readAloud] ?? 'Reads the text selected in any app. Press it again to stop.'}
+        >
           <ShortcutInput
             label="Read aloud shortcut"
             value={settings.tts.shortcut}
             platform={status.platform}
             status={status.shortcuts.readAloud}
             onChange={(shortcut) => update.mutate({ tts: { shortcut } })}
+          />
+        </Row>
+        <Row
+          id="settings-shortcut-read-pause"
+          label="Pause or resume reading"
+          description={SHORTCUT_NOTE[status.shortcuts.readAloudPause] ?? undefined}
+        >
+          <ShortcutInput
+            label="Pause reading shortcut"
+            optional
+            value={settings.tts.pauseShortcut}
+            platform={status.platform}
+            status={status.shortcuts.readAloudPause}
+            onChange={(pauseShortcut) => update.mutate({ tts: { pauseShortcut } })}
+          />
+        </Row>
+        <Row
+          id="settings-shortcut-read-stop"
+          label="Stop reading"
+          description={SHORTCUT_NOTE[status.shortcuts.readAloudStop] ?? undefined}
+        >
+          <ShortcutInput
+            label="Stop reading shortcut"
+            optional
+            value={settings.tts.stopShortcut}
+            platform={status.platform}
+            status={status.shortcuts.readAloudStop}
+            onChange={(stopShortcut) => update.mutate({ tts: { stopShortcut } })}
           />
         </Row>
         <Row id="settings-shortcut-cancel" label="Cancel recording" description="Discards the recording in progress without transcribing it.">

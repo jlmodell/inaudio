@@ -43,8 +43,8 @@ const READING_PROGRESS = 64;
 
 /** What the reading readout shows; null when nothing is being read. */
 export interface OverlayReadingContent {
-  /** Pause, resume and stop buttons are drawn once the pill is armed. */
-  controls: boolean;
+  /** A capture or playback failure is shown in place of the progress, with a dismiss button. */
+  message: boolean;
 }
 
 /** Everything that decides what the pill draws right now, beyond the settings. */
@@ -75,6 +75,7 @@ export function overlayPillWidth(overlay: Settings['overlay'], content: OverlayC
   const armed = content.armed && !failed;
 
   if (phase === 'idle' && content.reading) {
+    if (content.reading.message) return CHROME + ICON + GAP + LABEL.error + OVERLAY_MESSAGE_SPACE + DIVIDER + BUTTON;
     let width = CHROME + ICON + GAP + LABEL.reading + READING_COUNT + READING_PROGRESS;
     if (armed) width += DIVIDER + BUTTON * 3;
     return width;

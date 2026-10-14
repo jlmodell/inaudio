@@ -54,11 +54,13 @@ test('the language chip appears only for a multilingual model and gives way to c
 });
 
 test('a reading session replaces the readout while dictation is idle', () => {
-  const reading = overlayPillWidth(overlay, { ...content, reading: { controls: false } });
-  const armed = overlayPillWidth(overlay, { ...content, reading: { controls: true }, armed: true });
+  const reading = overlayPillWidth(overlay, { ...content, reading: { message: false } });
+  const armed = overlayPillWidth(overlay, { ...content, reading: { message: false }, armed: true });
+  const failed = overlayPillWidth(overlay, { ...content, reading: { message: true } });
   assert.ok(reading > overlayPillWidth(overlay, content));
   assert.ok(armed > reading);
-  const listening = overlayPillWidth(overlay, { ...content, phase: 'listening', reading: { controls: false } });
+  assert.ok(failed > reading);
+  const listening = overlayPillWidth(overlay, { ...content, phase: 'listening', reading: { message: false } });
   assert.equal(listening, overlayPillWidth(overlay, { ...content, phase: 'listening' }));
 });
 

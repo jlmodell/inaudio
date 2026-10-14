@@ -62,6 +62,7 @@ function bootstrap(): void {
   function openWindow(): BrowserWindow {
     const win = createMainWindow();
     registerSurface(win.webContents, 'main');
+    win.webContents.on('did-finish-load', () => services?.readAloud.rendererReset());
     win.on('close', (event) => {
       if (!quitting && services?.settings.get().system.closeToTray) {
         event.preventDefault();
@@ -103,7 +104,10 @@ function bootstrap(): void {
       startDictation: () => command('dictation:start'),
       stopDictation: () => command('dictation:stop'),
       cancelDictation: () => command('dictation:cancel'),
-      readClipboard: () => command('read-aloud:clipboard'),
+      readClipboard: () => void services?.readAloud.start({ source: 'clipboard' }),
+      pauseReading: () => services?.readAloud.pause(),
+      resumeReading: () => services?.readAloud.resume(),
+      stopReading: () => services?.readAloud.stop(),
       openSettings: () => {
         showWindow();
         command('navigate:settings');
@@ -135,7 +139,9 @@ function bootstrap(): void {
 
   const shortcuts = new ShortcutService({
     dictation: () => command('dictation:toggle'),
-    readAloud: () => command('read-aloud:clipboard'),
+    readAloud: () => services?.readAloud.toggleSelection(),
+    readAloudPause: () => services?.readAloud.togglePause(),
+    readAloudStop: () => services?.readAloud.stop(),
     cancel: () => command('dictation:cancel'),
     overlay: () => {
       const current = services?.settings.get();
@@ -164,6 +170,10 @@ function bootstrap(): void {
       command: sendCommand,
       showWindow,
       statusChanged: () => send(EVENTS.statusChanged),
+      send,
+      ensureWindow: () => {
+        if (!mainWindow || mainWindow.isDestroyed()) mainWindow = openWindow();
+      },
     });
     const s = services;
     s.updater.setBeforeInstall(() => {
@@ -216,6 +226,8 @@ function bootstrap(): void {
         next.dictation.shortcut !== previous.dictation.shortcut ||
         next.dictation.cancelShortcut !== previous.dictation.cancelShortcut ||
         next.tts.shortcut !== previous.tts.shortcut ||
+        next.tts.pauseShortcut !== previous.tts.pauseShortcut ||
+        next.tts.stopShortcut !== previous.tts.stopShortcut ||
         next.overlay.toggleShortcut !== previous.overlay.toggleShortcut
       ) {
         shortcuts.apply(next);
@@ -250,6 +262,7 @@ function bootstrap(): void {
     mainWindow = openWindow();
     // Only the dictation engine is started eagerly; synthesis starts on first use.
     void s.stt.start().catch((error: unknown) => console.error(error));
+    setTimeout(() => s.readAloud.warm(), 3_000).unref();
     s.updater.start();
   });
 

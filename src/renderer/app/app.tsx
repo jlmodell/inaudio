@@ -11,7 +11,7 @@ import { DictationPage } from '@renderer/features/dictation/dictation-page';
 import { HistoryPage } from '@renderer/features/history/history-page';
 import { ModelsPage } from '@renderer/features/models/models-page';
 import { ReadAloudPage } from '@renderer/features/read-aloud/read-aloud-page';
-import { readClipboardAloud } from '@renderer/features/read-aloud/read-aloud-store';
+import { connectReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
 import { SettingsPage } from '@renderer/features/settings/settings-page';
 import { SetupFlow } from '@renderer/features/setup/setup-flow';
 import { LogoMark } from '@renderer/components/brand/logo';
@@ -43,8 +43,6 @@ function useMainEvents() {
             return void dictation.stop();
           case 'dictation:cancel':
             return void dictation.cancel();
-          case 'read-aloud:clipboard':
-            return void readClipboardAloud();
           default:
             if (command.startsWith('navigate:')) navigate(command.slice('navigate:'.length) as Route);
         }
@@ -58,6 +56,7 @@ function useMainEvents() {
         void client.invalidateQueries({ queryKey: keys.models });
       }),
       api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })), 
+      connectReadAloud(),
     ];
     return () => offs.forEach((off) => off());
   }, [client, navigate]);

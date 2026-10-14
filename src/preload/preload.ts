@@ -57,10 +57,15 @@ const api: InaudioApi = {
   text: {
     insert: (text) => ipcRenderer.invoke(IPC.textInsert, text),
     copy: (text) => ipcRenderer.invoke(IPC.clipboardWrite, text),
-    readClipboard: () => ipcRenderer.invoke(IPC.clipboardRead),
   },
   tts: {
     speak: (input) => ipcRenderer.invoke(IPC.ttsSpeak, input),
+  },
+  readAloud: {
+    get: () => ipcRenderer.invoke(IPC.readAloudGet),
+    start: (input) => ipcRenderer.invoke(IPC.readAloudStart, input),
+    control: (input) => ipcRenderer.invoke(IPC.readAloudControl, input),
+    report: (report) => ipcRenderer.send(IPC.readAloudReport, report),
   },
   history: {
     list: (query) => ipcRenderer.invoke(IPC.historyList, query),
@@ -83,6 +88,9 @@ const api: InaudioApi = {
     onCompanionState: (listener) => subscribe(EVENTS.companionState, listener),
     onCompanionGaze: (listener) => subscribe(EVENTS.companionGaze, listener),
     onUpdateState: (listener: (status: UpdateStatus) => void) => subscribe(EVENTS.updateState, listener),
+    onReadAloudSession: (listener) => subscribe(EVENTS.readAloudSession, listener),
+    onReadAloudState: (listener) => subscribe(EVENTS.readAloudState, listener),
+    onReadAloudChunk: (listener) => subscribe(EVENTS.readAloudChunk, listener),
   },
 };
 

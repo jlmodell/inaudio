@@ -318,8 +318,11 @@ export function modelBytes(model: ModelDescriptor): number {
   return model.artifacts.reduce((sum, a) => sum + a.bytes, 0);
 }
 
+/** The Kokoro speaker id for a configured voice. An unknown voice fails rather than reading as speaker 0. */
 export function voiceSid(voiceId: string): number {
-  return KOKORO_VOICES.find((v) => v.id === voiceId)?.sid ?? 0;
+  const voice = KOKORO_VOICES.find((v) => v.id === voiceId);
+  if (!voice) throw new Error(`Voice ${voiceId} is not part of Kokoro English v0.19`);
+  return voice.sid;
 }
 
 /** Download hosts, matched exactly or as a parent domain (covers CDN redirects). */

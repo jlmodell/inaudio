@@ -168,7 +168,21 @@ export const settingsSchema = z.object({
     modelId: ttsModelIdSchema,
     voiceId: voiceIdSchema,
     speed: z.number().min(0.5).max(2),
+    /** Reads the selection in the focused app; pressed again while reading, it stops. */
     shortcut: acceleratorSchema,
+    pauseShortcut: optionalAcceleratorSchema,
+    stopShortcut: optionalAcceleratorSchema,
+    volume: z.number().min(0).max(1),
+    /** Ask the focused app for its selection through the OS accessibility API first. */
+    useAccessibility: z.boolean(),
+    /** Fall back to sending Copy and reading the clipboard when that gives nothing. */
+    copyFallback: z.boolean(),
+    /** Put back what was on the clipboard after a copy fallback. */
+    restoreClipboard: z.boolean(),
+    showInOverlay: z.boolean(),
+    pauseOnDictation: z.boolean(),
+    /** Highlight the sentence being read in the Read Aloud preview. */
+    followAlong: z.boolean(),
   }),
   overlay: z.object({
     enabled: z.boolean(),
@@ -249,6 +263,15 @@ export const DEFAULT_SETTINGS: Settings = {
     voiceId: '00',
     speed: 1,
     shortcut: 'CommandOrControl+Shift+R',
+    pauseShortcut: '',
+    stopShortcut: '',
+    volume: 1,
+    useAccessibility: true,
+    copyFallback: true,
+    restoreClipboard: true,
+    showInOverlay: true,
+    pauseOnDictation: true,
+    followAlong: true,
   },
   overlay: {
     enabled: true,

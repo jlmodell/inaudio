@@ -1,77 +1,7 @@
 import { clipboard, systemPreferences } from 'electron';
-import { execFile } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { InsertionSupport } from '@shared/domain/system';
-import { PowerShellHelper, windowsPowerShell } from './powershell-helper';
-
-interface PasteCommand {
-  file: string;
-  args: string[];
-  method: string;
-}
-
-function findOnPath(binary: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (!dir) continue;
-    const candidate = path.join(dir, binary);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // keep looking
-    }
-  }
-  return null;
-}
-
-/**
- * Fixed executables with fixed arguments. Transcript text never reaches a
- * command line; it only travels through the clipboard.
- */
-function resolvePasteCommand(): PasteCommand | null {
-  switch (process.platform) {
-    case 'darwin':
-      return {
-        file: '/usr/bin/osascript',
-        args: ['-e', 'tell application "System Events" to keystroke "v" using command down'],
-        method: 'System Events (osascript)',
-      };
-    case 'win32': {
-      return {
-        file: windowsPowerShell(),
-        args: [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')",
-        ],
-        method: 'SendKeys (PowerShell)',
-      };
-    }
-    default: {
-      if (process.env.WAYLAND_DISPLAY) {
-        const wtype = findOnPath('wtype');
-        if (wtype) return { file: wtype, args: ['-M', 'ctrl', 'v', '-m', 'ctrl'], method: 'wtype' };
-        const ydotool = findOnPath('ydotool');
-        if (ydotool) return { file: ydotool, args: ['key', '29:1', '47:1', '47:0', '29:0'], method: 'ydotool' };
-      }
-      const xdotool = findOnPath('xdotool');
-      if (xdotool) {
-        return { file: xdotool, args: ['key', '--clearmodifiers', 'ctrl+v'], method: 'xdotool' };
-      }
-      return null;
-    }
-  }
-}
-
-function run(command: PasteCommand): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile(command.file, command.args, { timeout: 5000, windowsHide: true, shell: false }, (error) =>
-      error ? reject(error) : resolve(),
-    );
-  });
-}
+import { resolveKeyCommand, runKeyCommand, type KeyCommand } from './keystrokes';
+import { PowerShellHelper } from './powershell-helper';
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -112,7 +42,7 @@ class PasteHelper {
 }
 
 export class TextInserter {
-  private readonly command = resolvePasteCommand();
+  private readonly command = resolveKeyCommand('paste');
   private readonly helper =
     process.platform === 'win32' && this.command ? new PasteHelper(this.command.file) : null;
   /** Pastes run one at a time so the helper never has two replies outstanding. */
@@ -161,12 +91,12 @@ export class TextInserter {
     this.helper?.dispose();
   }
 
-  private async sendPaste(command: PasteCommand): Promise<void> {
+  private async sendPaste(command: KeyCommand): Promise<void> {
     // The helper's first start is slower than one one-shot paste, so that paste uses the
     // one-shot path while the helper starts behind it. Once the helper has the request it
     // may already have pasted, so its failure is reported instead of retried: the caller
     // falls back to leaving the text on the clipboard, and the next paste respawns it.
     if (this.helper?.warm()) return this.helper.paste();
-    await run(command);
+    await runKeyCommand(command);
   }
 }

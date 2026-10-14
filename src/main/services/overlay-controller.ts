@@ -1,7 +1,7 @@
 import { screen, type BrowserWindow, type Display } from 'electron';
 import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
 import type { Settings } from '@shared/domain/settings';
-import type { AudioDevice, DictationState, OverlayState } from '@shared/domain/system';
+import type { AudioDevice, DictationState, OverlayReading, OverlayState } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
 import { isWayland, overlaySupport } from '../app/platform';
 import { registerSurface } from '../security/surfaces';
@@ -33,6 +33,7 @@ export class OverlayController {
   private menu = false;
   private disposed = false;
   private dictation: DictationState = { phase: 'idle', startedAt: 0, level: 0, message: '' };
+  private reading: OverlayReading | null = null;
   private readonly onDisplayChange = () => this.place();
 
   constructor(private readonly options: OverlayOptions) {
@@ -73,6 +74,18 @@ export class OverlayController {
     if (this.dictation.level === level) return;
     this.dictation = { ...this.dictation, level };
     if (!this.disposed) this.push();
+  }
+
+  /** A read-aloud session to show while dictation is idle, or null once it is over. */
+  setReading(reading: OverlayReading | null): void {
+    if (JSON.stringify(reading) === JSON.stringify(this.reading)) return;
+    this.reading = reading;
+    if (this.disposed) return;
+    if (!reading && this.dictation.phase === 'idle') {
+      this.hover = false;
+      this.menu = false;
+    }
+    this.sync();
   }
 
   phase(): DictationState['phase'] {
@@ -143,7 +156,7 @@ export class OverlayController {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
     const { overlay } = this.options.settings();
-    const wanted = overlay.visibility === 'always' || this.dictation.phase !== 'idle';
+    const wanted = overlay.visibility === 'always' || this.dictation.phase !== 'idle' || this.reading !== null;
     if (wanted === win.isVisible()) {
       if (wanted) win.moveTop();
       return;
@@ -219,7 +232,10 @@ export class OverlayController {
       menuOpen: this.menu,
       devices: this.options.devices().length,
       language: MODEL_CATALOG[settings.stt.modelId].languages.length > 1,
-      reading: null,
+      reading:
+        this.dictation.phase === 'idle' && this.reading
+          ? { message: this.reading.status === 'error' && this.reading.message !== '' }
+          : null,
     };
   }
 
@@ -271,6 +287,7 @@ export class OverlayController {
       deviceId: settings.audio.inputDeviceId,
       modelId: settings.stt.modelId,
       animate: appearance.animations === 'full',
+      reading: this.reading,
     };
   }
 }

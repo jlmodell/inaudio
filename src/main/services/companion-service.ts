@@ -30,6 +30,7 @@ export class CompanionService extends EventEmitter<{
   private lastEvent: CompanionEvent | undefined;
   private revision = 0;
   private dictating = false;
+  private reading = false;
   private sleepingTimer: NodeJS.Timeout | null = null;
   private focusTimer: NodeJS.Timeout | null = null;
   private hoverTimer: NodeJS.Timeout | null = null;
@@ -50,8 +51,15 @@ export class CompanionService extends EventEmitter<{
       state: this.state,
       event: this.lastEvent,
       revision: this.revision,
-      dictating: this.dictating,
+      dictating: this.dictating || this.reading,
     };
+  }
+
+  /** Read Aloud is speaking, so the companion holds its own lines the same way it does for dictation. */
+  setReading(active: boolean): void {
+    if (this.reading === active) return;
+    this.reading = active;
+    this.emitChanged();
   }
 
   /** Mirrors whether dictation is in flight, so the companion holds spoken lines until it ends. */
