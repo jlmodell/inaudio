@@ -62,6 +62,8 @@ export class SegmentPlayer {
   private startedAt = 0;
   private sampleRate = 0;
   private deviceId = 'default';
+  /** A pause asked for, so an in-flight play() does not resume the context back out from under it. */
+  private paused = false;
 
   async play(
     samples: Float32Array,
@@ -83,16 +85,24 @@ export class SegmentPlayer {
       onEnded();
     };
     this.source = source;
-    if (context.state === 'suspended') await context.resume();
+    // A pause that landed while the context was opening is honored: the source still starts,
+    // it just stays silent on the suspended context until resume() brings it back.
+    if (this.paused) {
+      if (context.state === 'running') void context.suspend();
+    } else if (context.state === 'suspended') {
+      await context.resume();
+    }
     this.startedAt = context.currentTime;
     source.start();
   }
 
   pause(): void {
+    this.paused = true;
     if (this.context?.state === 'running') void this.context.suspend();
   }
 
   resume(): void {
+    this.paused = false;
     if (this.context?.state === 'suspended') void this.context.resume();
   }
 
@@ -107,10 +117,8 @@ export class SegmentPlayer {
   }
 
   stop(): void {
-    this.stopSource();
-    if (this.context && this.context.state !== 'closed') void this.context.close();
-    this.context = null;
-    this.gain = null;
+    this.paused = false;
+    this.teardown();
   }
 
   private stopSource(): void {
@@ -123,11 +131,19 @@ export class SegmentPlayer {
     }
   }
 
+  private teardown(): void {
+    this.stopSource();
+    if (this.context && this.context.state !== 'closed') void this.context.close();
+    this.context = null;
+    this.gain = null;
+  }
+
   private async open(sampleRate: number, deviceId: string): Promise<AudioContext> {
     if (this.context && this.context.state !== 'closed' && this.sampleRate === sampleRate && this.deviceId === deviceId) {
       return this.context;
     }
-    this.stop();
+    // Teardown, not stop(): a pause asked for while this runs still applies to the new context.
+    this.teardown();
     const context = new AudioContext({ sampleRate });
     if (deviceId && deviceId !== 'default' && 'setSinkId' in context) {
       try {

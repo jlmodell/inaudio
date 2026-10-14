@@ -38,8 +38,9 @@ async function restore(saved: Record<string, Payload>[]): Promise<void> {
 /**
  * Copies the selection through the clipboard without losing what was on it. The clipboard is
  * cleared first so an empty selection reads as empty instead of as the previous contents, and
- * the snapshot is put back only while the clipboard still holds what this copy produced, so
- * anything copied in the meantime wins.
+ * the snapshot is put back only while the clipboard still shows the text that was just read, so
+ * a copy made afterwards survives. A copy landing inside the wait window cannot be told apart
+ * from ours and is replaced along with it.
  */
 export async function captureByCopy(
   sendCopy: () => Promise<void>,
