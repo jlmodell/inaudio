@@ -1,4 +1,4 @@
-import { clipboard, type BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import {
   MODEL_CATALOG,
   MODEL_IDS,
@@ -10,13 +10,13 @@ import {
 } from '@shared/domain/models';
 import type { AudioDevice, AppCommand, SystemStatus, WorkerHealth } from '@shared/domain/system';
 import { RESERVED_DEVICE_IDS, type Settings, type SettingsPatch } from '@shared/domain/settings';
-import { MAX_TRANSCRIPT_CHARS } from '@shared/domain/history';
 import type { AppPaths } from '../app/paths';
 import { DictationController } from './dictation-controller';
 import { HistoryRepository } from './history-repository';
 import { InferenceHost } from './inference-host';
 import { ModelManager } from './model-manager';
 import { OverlayController } from './overlay-controller';
+import { ReadAloudController } from './read-aloud/read-aloud-controller';
 import { SettingsStore } from './settings-store';
 import type { ShortcutService } from './shortcuts';
 import { collectSystemStatus } from './system-status';
@@ -40,6 +40,7 @@ export interface Services {
   updater: UpdaterService;
   overlay: OverlayController;
   dictation: DictationController;
+  readAloud: ReadAloudController;
   /** Records the devices the capturing window can see, for the tray and the id allow-list. */
   reportDevices(devices: AudioDevice[]): void;
   /** The devices last reported, so the overlay can offer the same set the tray does. */
@@ -58,7 +59,6 @@ export interface Services {
   removeModel(id: ModelId): Promise<void>;
   modelStatuses(): ModelStatus[];
   dispose(): Promise<void>;
-  readClipboard(): Promise<string>;
 }
 
 interface Job<T> {
@@ -122,6 +122,10 @@ export function createServices(options: {
   showWindow(): void;
   /** Tells the app window its status snapshot is stale. Called at most once per batch. */
   statusChanged(): void;
+  /** Pushes an event to the app window, if it exists. */
+  send(channel: string, payload: unknown): void;
+  /** Opens the app window if it is gone, without waiting for it to load. */
+  ensureWindow(): void;
 }): Services {
   const { paths } = options;
   const settings = new SettingsStore(paths.settings);
@@ -178,6 +182,7 @@ export function createServices(options: {
     showWindow: options.showWindow,
     overlay,
     onState: (state) => {
+      readAloud.onDictation(state.phase);
       options.tray.setPhase(state.phase, state.startedAt);
       companion.setDictating(state.phase === 'listening' || state.phase === 'transcribing' || state.phase === 'inserting');
       if (state.phase === 'listening') companion.react('dictation.started', 'listening');
@@ -331,11 +336,31 @@ export function createServices(options: {
     }
     notify();
   });
+  function runModel<T>(id: ModelId, operation: () => Promise<T>, priority = 0): Promise<T> {
+    const kind = kindOf(id);
+    return queues[kind].serial(async () => {
+      clearTimeout(idleTimers[kind]);
+      await load(id);
+      try { return await operation(); }
+      finally { state(id).lastUsedAt = Date.now(); notify(); scheduleIdle(kind); }
+    }, priority);
+  }
+  const readAloud = new ReadAloudController({
+    settings: () => settings.get(),
+    isInstalled: (id) => models.isInstalled(id),
+    speak: (id, text, sid, speed) => runModel(id, () => hosts.tts.speak(text, sid, speed)),
+    send: options.send,
+    ensureWindow: options.ensureWindow,
+    overlay,
+    tray: options.tray,
+    companion,
+  });
+  settings.on('change', (next, previous) => readAloud.onSettings(next, previous));
 
   return {
     paths, settings, history, models, stt: hosts.stt, tts: hosts.tts, inserter, companion, updater,
     shortcuts: options.shortcuts, tray: options.tray, window: options.window,
-    overlay, dictation, reportDevices, updateSettings: applySettings,
+    overlay, dictation, readAloud, reportDevices, updateSettings: applySettings,
     listDevices: () => reportedDevices,
     installedSttModels,
     status: () => {
@@ -357,15 +382,7 @@ export function createServices(options: {
     },
     modelStatuses,
     ensureLoaded: (id) => queues[kindOf(id)].serial(() => load(id), 100),
-    runModel: (id, operation, priority = 0) => {
-      const kind = kindOf(id);
-      return queues[kind].serial(async () => {
-        clearTimeout(idleTimers[kind]);
-        await load(id);
-        try { return await operation(); }
-        finally { state(id).lastUsedAt = Date.now(); notify(); scheduleIdle(kind); }
-      }, priority);
-    },
+    runModel,
     unloadModel: (id) => queues[kindOf(id)].serial(async () => { await unload(id); scheduleIdle(kindOf(id)); }),
     activateModel: (id) => queues[kindOf(id)].serial(async () => {
       // A model only ever becomes active in the kind it belongs to, so the id is narrowed
@@ -404,6 +421,7 @@ export function createServices(options: {
       clearTimeout(idleTimers.stt);
       clearTimeout(idleTimers.tts);
       dictation.dispose();
+      readAloud.dispose();
       companion.dispose();
       overlay.destroy();
       inserter.dispose();
@@ -413,6 +431,5 @@ export function createServices(options: {
       await Promise.all([hosts.stt.stop(), hosts.tts.stop()]);
       history.close();
     },
-    readClipboard: async () => (await clipboard.readText()).slice(0, MAX_TRANSCRIPT_CHARS),
   };
 }

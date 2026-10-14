@@ -89,7 +89,7 @@ function ShortcutStep() {
       </div>
       <div className="flex items-center gap-4 text-lg">
         <Kbd keys={formatAccelerator(settings.tts.shortcut, status.platform)} />
-        <span className="text-sm text-muted">read the clipboard aloud</span>
+        <span className="text-sm text-muted">read the selected text aloud</span>
       </div>
       {!status.insertion.available && <Notice tone="neutral">{status.insertion.reason}</Notice>}
       {status.accessibilityTrusted === false && (

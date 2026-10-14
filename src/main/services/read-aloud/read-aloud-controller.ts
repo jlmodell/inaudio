@@ -1,0 +1,372 @@
+import { clipboard, Notification } from 'electron';
+import { randomUUID } from 'node:crypto';
+import { MODEL_CATALOG, voiceSid, type ModelId, type VoiceId } from '@shared/domain/models';
+import {
+  IDLE_READ_ALOUD,
+  MAX_READ_ALOUD_CHARS,
+  READ_ALOUD_KEEP_BEHIND,
+  READ_ALOUD_PREFETCH,
+  readAloudActive,
+  type ReadAloudChunk,
+  type ReadAloudControl,
+  type ReadAloudReport,
+  type ReadAloudSession,
+  type ReadAloudSource,
+  type ReadAloudStart,
+  type ReadAloudState,
+} from '@shared/domain/read-aloud';
+import type { Settings } from '@shared/domain/settings';
+import type { DictationPhase, OverlayReading } from '@shared/domain/system';
+import { EVENTS } from '@shared/ipc/channels';
+import type { TtsResult } from '@shared/worker/protocol';
+import { normalizeText, segmentText } from '@shared/read-aloud/segment';
+import { appIcon } from '../../app/assets';
+import { SelectionProvider, type SelectionResult } from './selection-provider';
+
+interface ReadAloudOptions {
+  settings(): Settings;
+  isInstalled(id: ModelId): boolean;
+  /** Runs one synthesis through the speech model's own queue, loading it first if needed. */
+  speak(modelId: ModelId, text: string, sid: number, speed: number): Promise<TtsResult>;
+  /** Sends to the main window, the only renderer that plays audio. */
+  send(channel: string, payload: unknown): void;
+  /** Opens the main window if it is gone. Only called once the text is already captured. */
+  ensureWindow(): void;
+  overlay: { setReading(reading: OverlayReading | null): void };
+  tray: { setReading(reading: 'idle' | 'playing' | 'paused'): void };
+  companion: { react(event: 'tts.started' | 'tts.completed', state: 'speaking' | 'ready'): void; setReading(active: boolean): void };
+}
+
+const CAPTURE_MESSAGE: Record<Extract<SelectionResult, { ok: false }>['reason'], string> = {
+  empty: 'No text is selected.',
+  protected: 'That field is protected, so it is not read.',
+  permission: 'Allow Inaudio under Privacy & Security > Accessibility to read selected text.',
+  unsupported: 'This app does not share its selection. Paste the text into Read Aloud instead.',
+};
+/** How long a failure stays on the overlay before the pill goes back to dictation. */
+const OVERLAY_ERROR_MS = 4_000;
+
+/**
+ * The single authority over Read Aloud. Shortcuts, the tray, the overlay and the page all ask
+ * this controller, which captures the text, splits it, synthesizes a few segments ahead in the
+ * speech worker, and tells the main window what to play. The window reports back when a
+ * segment ends. Text is never logged.
+ */
+export class ReadAloudController {
+  private readonly selection: SelectionProvider;
+  private session: ReadAloudSession | null = null;
+  private state: ReadAloudState = { ...IDLE_READ_ALOUD };
+  /** Segments of the current take the window holds, mirroring its eviction rule. */
+  private delivered = new Set<number>();
+  /** The synthesis in flight; a newer session or take simply ignores its result. */
+  private inflight: { index: number } | null = null;
+  private capturing = 0;
+  private errorTimer: NodeJS.Timeout | null = null;
+
+  constructor(private readonly options: ReadAloudOptions) {
+    this.selection = new SelectionProvider(() => options.settings().tts);
+  }
+
+  /** Starts the platform helper in the background so the first shortcut does not wait for it. */
+  warm(): void {
+    this.selection.warm();
+  }
+
+  snapshot(): { session: ReadAloudSession | null; state: ReadAloudState } {
+    return { session: this.session, state: this.state };
+  }
+
+  /** The Read Aloud shortcut: reads the selection, or stops a session that is already running. */
+  toggleSelection(): void {
+    if (this.state.status === 'capturing') return;
+    if (readAloudActive(this.state.status)) this.stop();
+    else void this.startFromSelection();
+  }
+
+  togglePause(): void {
+    if (this.state.status === 'paused') this.resume();
+    else this.pause();
+  }
+
+  async start(input: ReadAloudStart): Promise<{ sessionId: string | null }> {
+    if (input.source === 'manual') this.begin('manual', input.text);
+    else if (input.source === 'clipboard') await this.startFromClipboard();
+    else await this.startFromSelection();
+    return { sessionId: this.state.sessionId };
+  }
+
+  control(input: ReadAloudControl): void {
+    if (input.sessionId !== this.state.sessionId) return;
+    if (input.action === 'seek') this.seek(input.index);
+    else if (input.action === 'pause') this.pause();
+    else if (input.action === 'resume') this.resume();
+    else if (input.action === 'stop') this.stop();
+    else this.seek(0);
+  }
+
+  report(report: ReadAloudReport): void {
+    if (report.sessionId !== this.state.sessionId || !this.session) return;
+    if (report.type === 'error') {
+      this.fail(report.message || 'Playback failed.');
+      return;
+    }
+    if (report.index !== this.state.index || report.seek !== this.state.seek) return;
+    if (report.index + 1 >= this.state.count) {
+      this.finish();
+      return;
+    }
+    this.state = { ...this.state, index: report.index + 1, waiting: !this.delivered.has(report.index + 1) };
+    this.evict();
+    this.publish();
+    this.pump();
+  }
+
+  pause(): void {
+    if (this.state.status !== 'playing' && this.state.status !== 'preparing') return;
+    this.state = { ...this.state, status: 'paused' };
+    this.publish();
+  }
+
+  resume(): void {
+    if (this.state.status !== 'paused') return;
+    this.state = { ...this.state, status: 'playing' };
+    this.publish();
+    this.pump();
+  }
+
+  stop(): void {
+    if (!readAloudActive(this.state.status) && this.state.status !== 'error') return;
+    this.capturing++;
+    const speaking = this.state.sessionId !== null && readAloudActive(this.state.status);
+    this.state = { ...this.state, status: this.state.sessionId ? 'stopped' : 'idle', waiting: false };
+    this.publish();
+    if (speaking) this.options.companion.react('tts.completed', 'ready');
+  }
+
+  /** Starting dictation pauses reading, so the microphone does not record the speakers. */
+  onDictation(phase: DictationPhase): void {
+    if (phase === 'listening' && this.options.settings().tts.pauseOnDictation) this.pause();
+  }
+
+  /** A new voice or speed applies from the next segment; the one playing finishes as it is. */
+  onSettings(next: Settings, previous: Settings): void {
+    if (next.tts.voiceId === previous.tts.voiceId && next.tts.speed === previous.tts.speed) return;
+    if (!this.session) return;
+    const { index } = this.state;
+    this.delivered = new Set([...this.delivered].filter((i) => i <= index));
+    this.state = {
+      ...this.state,
+      take: this.state.take + 1,
+      voiceId: next.tts.voiceId as VoiceId,
+      speed: next.tts.speed,
+      durations: this.state.durations.map((ms, i) => (i <= index ? ms : 0)),
+    };
+    this.publish();
+    this.pump();
+  }
+
+  /** The main window (re)loaded and holds no audio, so everything is synthesized again. */
+  rendererReset(): void {
+    if (!this.session) return;
+    this.delivered.clear();
+    this.state = { ...this.state, take: this.state.take + 1, waiting: true, durations: this.state.durations.map(() => 0) };
+    this.publish();
+    this.pump();
+  }
+
+  dispose(): void {
+    if (this.errorTimer) clearTimeout(this.errorTimer);
+    this.capturing++;
+    this.selection.dispose();
+  }
+
+  private async startFromSelection(): Promise<void> {
+    if (readAloudActive(this.state.status)) this.stop();
+    const token = ++this.capturing;
+    this.state = { ...this.state, status: 'capturing', message: '' };
+    this.publish();
+    let result: SelectionResult;
+    try {
+      result = await this.selection.capture();
+    } catch {
+      result = { ok: false, reason: 'unsupported' };
+    }
+    if (token !== this.capturing) return;
+    if (!result.ok) this.fail(CAPTURE_MESSAGE[result.reason]);
+    else this.begin('selection', result.text);
+  }
+
+  private async startFromClipboard(): Promise<void> {
+    if (readAloudActive(this.state.status)) this.stop();
+    const text = await clipboard.readText().catch(() => '');
+    if (!text.trim()) this.fail('The clipboard has no text.');
+    else this.begin('clipboard', text);
+  }
+
+  private begin(source: ReadAloudSource, raw: string): void {
+    this.capturing++;
+    const tts = this.options.settings().tts;
+    const model = MODEL_CATALOG[tts.modelId];
+    if (!this.options.isInstalled(tts.modelId)) {
+      this.fail(`${model.name} is not downloaded yet. Open Models to download it.`);
+      return;
+    }
+    const normalized = normalizeText(raw);
+    const truncated = normalized.length > MAX_READ_ALOUD_CHARS;
+    const text = truncated ? normalized.slice(0, MAX_READ_ALOUD_CHARS) : normalized;
+    const segments = segmentText(text);
+    if (!segments.length) {
+      this.fail('There is no text to read.');
+      return;
+    }
+    const sessionId = randomUUID();
+    this.session = { sessionId, source, text, segments, truncated };
+    this.delivered.clear();
+    this.inflight = null;
+    this.state = {
+      sessionId,
+      status: 'preparing',
+      index: 0,
+      count: segments.length,
+      seek: 0,
+      take: 0,
+      durations: segments.map(() => 0),
+      waiting: true,
+      voiceId: tts.voiceId as VoiceId,
+      speed: tts.speed,
+      message: '',
+    };
+    this.options.ensureWindow();
+    this.options.send(EVENTS.readAloudSession, this.session);
+    this.publish();
+    this.options.companion.react('tts.started', 'speaking');
+    this.pump();
+  }
+
+  private seek(index: number): void {
+    if (!this.session) return;
+    const target = Math.max(0, Math.min(index, this.state.count - 1));
+    const restarting = !readAloudActive(this.state.status);
+    this.state = {
+      ...this.state,
+      status: this.state.status === 'preparing' ? 'preparing' : 'playing',
+      index: target,
+      seek: this.state.seek + 1,
+      waiting: !this.delivered.has(target),
+      message: '',
+    };
+    this.evict();
+    this.publish();
+    if (restarting) this.options.companion.react('tts.started', 'speaking');
+    this.pump();
+  }
+
+  private finish(): void {
+    this.state = { ...this.state, status: 'stopped', waiting: false };
+    this.publish();
+    this.options.companion.react('tts.completed', 'ready');
+  }
+
+  /** Drops what the window drops: segments far behind the one playing. */
+  private evict(): void {
+    for (const index of this.delivered) {
+      if (index < this.state.index - READ_ALOUD_KEEP_BEHIND) this.delivered.delete(index);
+    }
+  }
+
+  /** Synthesizes the next missing segment within the prefetch window, one at a time. */
+  private pump(): void {
+    const session = this.session;
+    if (!session || this.inflight || !readAloudActive(this.state.status)) return;
+    const { sessionId } = session;
+    const { index, count, take, voiceId, speed } = this.state;
+    let next = -1;
+    for (let i = index; i < Math.min(count, index + READ_ALOUD_PREFETCH + 1); i++) {
+      if (!this.delivered.has(i)) {
+        next = i;
+        break;
+      }
+    }
+    const segment = session.segments[next];
+    if (!segment) return;
+    const job = { index: next };
+    this.inflight = job;
+    const tts = this.options.settings().tts;
+    const expectedRate = MODEL_CATALOG[tts.modelId].layout.sampleRate;
+    let sid: number;
+    try {
+      sid = voiceSid(voiceId);
+    } catch (error) {
+      this.inflight = null;
+      this.fail(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    void this.options
+      .speak(tts.modelId, segment.text, sid, speed)
+      .then((result) => {
+        if (sessionId !== this.state.sessionId || take !== this.state.take) return;
+        if (result.sampleRate !== expectedRate) {
+          this.fail(`The voice produced ${result.sampleRate} Hz audio; ${expectedRate} Hz was expected.`);
+          return;
+        }
+        this.delivered.add(next);
+        const durations = [...this.state.durations];
+        durations[next] = Math.round((result.samples.length / result.sampleRate) * 1000);
+        const chunk: ReadAloudChunk = { sessionId, index: next, take, samples: result.samples, sampleRate: result.sampleRate };
+        this.options.send(EVENTS.readAloudChunk, chunk);
+        const current = next === this.state.index;
+        this.state = {
+          ...this.state,
+          durations,
+          waiting: current ? false : this.state.waiting,
+          status: current && this.state.status === 'preparing' ? 'playing' : this.state.status,
+        };
+        this.publish();
+      })
+      .catch((error: unknown) => {
+        if (sessionId !== this.state.sessionId || !readAloudActive(this.state.status)) return;
+        this.fail(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (this.inflight === job) this.inflight = null;
+        this.pump();
+      });
+  }
+
+  private fail(message: string): void {
+    const wasSpeaking = this.state.sessionId !== null && readAloudActive(this.state.status);
+    this.state = { ...this.state, status: 'error', waiting: false, message };
+    this.publish();
+    if (wasSpeaking) this.options.companion.react('tts.completed', 'ready');
+    const settings = this.options.settings();
+    const overlayShows = settings.overlay.enabled && settings.tts.showInOverlay;
+    if (!overlayShows && settings.tray.notifications && Notification.isSupported()) {
+      new Notification({ title: 'Read Aloud', body: message, silent: true, icon: appIcon() }).show();
+    }
+  }
+
+  private overlayReading(): OverlayReading | null {
+    const { status, index, count, waiting, message } = this.state;
+    if (status === 'error') return { status, index, count, waiting, message };
+    if (!readAloudActive(status)) return null;
+    return { status: status as OverlayReading['status'], index, count, waiting, message: '' };
+  }
+
+  private publish(): void {
+    this.options.send(EVENTS.readAloudState, this.state);
+    const showInOverlay = this.options.settings().tts.showInOverlay;
+    this.options.overlay.setReading(showInOverlay ? this.overlayReading() : null);
+    if (this.errorTimer) clearTimeout(this.errorTimer);
+    this.errorTimer = null;
+    if (this.state.status === 'error') {
+      this.errorTimer = setTimeout(() => {
+        this.errorTimer = null;
+        if (this.state.status === 'error') this.options.overlay.setReading(null);
+      }, OVERLAY_ERROR_MS);
+      this.errorTimer.unref();
+    }
+    const { status } = this.state;
+    this.options.tray.setReading(status === 'paused' ? 'paused' : readAloudActive(status) && status !== 'capturing' ? 'playing' : 'idle');
+    this.options.companion.setReading(status === 'playing' || status === 'preparing');
+  }
+}

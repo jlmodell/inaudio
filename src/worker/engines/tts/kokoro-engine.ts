@@ -32,9 +32,11 @@ export class KokoroEngine implements TextToSpeechEngine {
 
   async speak(text: string, sid: number, speed: number): Promise<TtsResult> {
     const started = performance.now();
-    const safeSid = Math.min(Math.max(0, sid), this.tts.numSpeakers - 1);
+    if (!Number.isInteger(sid) || sid < 0 || sid >= this.tts.numSpeakers) {
+      throw new Error(`Speaker ${sid} is not in this model (${this.tts.numSpeakers} speakers)`);
+    }
     // Electron's V8 memory cage rejects external ArrayBuffers, so the addon must copy.
-    const audio = await this.tts.generateAsync({ text, sid: safeSid, speed, enableExternalBuffer: false });
+    const audio = await this.tts.generateAsync({ text, sid, speed, enableExternalBuffer: false });
     return {
       samples: audio.samples,
       sampleRate: audio.sampleRate,

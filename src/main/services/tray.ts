@@ -23,6 +23,9 @@ interface TrayActions {
   stopDictation(): void;
   cancelDictation(): void;
   readClipboard(): void;
+  pauseReading(): void;
+  resumeReading(): void;
+  stopReading(): void;
   openSettings(): void;
   selectMicrophone(id: string): void;
   toggleOverlay(): void;
@@ -41,6 +44,7 @@ export class TrayService {
   private startedAt = 0;
   private models: ModelStatus[] = [];
   private devices: AudioDevice[] = [];
+  private reading: 'idle' | 'playing' | 'paused' = 'idle';
   private titleTimer: NodeJS.Timeout | null = null;
   /** What was last drawn, so identical redraws skip rebuilding the native menu. */
   private drawn = '';
@@ -78,6 +82,12 @@ export class TrayService {
 
   setDevices(devices: AudioDevice[]): void {
     this.devices = devices;
+    this.render();
+  }
+
+  setReading(reading: 'idle' | 'playing' | 'paused'): void {
+    if (this.reading === reading) return;
+    this.reading = reading;
     this.render();
   }
 
@@ -179,6 +189,20 @@ export class TrayService {
         registerAccelerator: false,
         enabled: !listening && !busy,
         click: this.actions.readClipboard,
+      },
+      {
+        label: this.reading === 'paused' ? 'Resume reading' : 'Pause reading',
+        accelerator: hint(tts.pauseShortcut),
+        registerAccelerator: false,
+        visible: this.reading !== 'idle',
+        click: this.reading === 'paused' ? this.actions.resumeReading : this.actions.pauseReading,
+      },
+      {
+        label: 'Stop reading',
+        accelerator: hint(tts.stopShortcut),
+        registerAccelerator: false,
+        visible: this.reading !== 'idle',
+        click: this.actions.stopReading,
       },
       { type: 'separator' },
       ...this.microphoneMenu(),

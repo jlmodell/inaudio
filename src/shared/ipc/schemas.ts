@@ -3,6 +3,7 @@ import { modelIdSchema, voiceIdSchema } from '../domain/models';
 import { historyQuerySchema, MAX_TRANSCRIPT_CHARS } from '../domain/history';
 import { deviceIdSchema, settingsPatchSchema } from '../domain/settings';
 import { COMPANION_IDS } from '../domain/companion';
+import { MAX_READ_ALOUD_CHARS } from '../domain/read-aloud';
 import type { AppMenuCommand, WindowAction } from '../domain/system';
 
 /** 16 kHz mono float32 for at most 10 minutes. */
@@ -59,7 +60,19 @@ export const schemas = {
    * it pushed. The overlay can never name a device or model of its own invention.
    */
   overlayAction: z.discriminatedUnion('type', [
-    z.object({ type: z.enum(['start', 'stop', 'cancel', 'hide', 'open-app', 'open-audio']) }),
+    z.object({
+      type: z.enum([
+        'start',
+        'stop',
+        'cancel',
+        'hide',
+        'open-app',
+        'open-audio',
+        'read-pause',
+        'read-resume',
+        'read-stop',
+      ]),
+    }),
     z.object({ type: z.literal('select-microphone'), id: deviceIdSchema }),
     z.object({ type: z.literal('select-model'), id: modelIdSchema }),
   ]),
@@ -71,6 +84,27 @@ export const schemas = {
     voiceId: voiceIdSchema.optional(),
     speed: z.number().min(0.5).max(2).optional(),
   }),
+  readAloudStart: z.discriminatedUnion('source', [
+    z.object({ source: z.enum(['selection', 'clipboard']) }).strict(),
+    z.object({ source: z.literal('manual'), text: z.string().min(1).max(MAX_READ_ALOUD_CHARS) }).strict(),
+  ]),
+  readAloudControl: z.discriminatedUnion('action', [
+    z.object({ sessionId: z.string().uuid(), action: z.enum(['pause', 'resume', 'stop', 'replay']) }).strict(),
+    z.object({ sessionId: z.string().uuid(), action: z.literal('seek'), index: z.number().int().min(0) }).strict(),
+  ]),
+  readAloudReport: z.discriminatedUnion('type', [
+    z
+      .object({
+        sessionId: z.string().uuid(),
+        type: z.literal('ended'),
+        index: z.number().int().min(0),
+        seek: z.number().int().min(0),
+      })
+      .strict(),
+    z
+      .object({ sessionId: z.string().uuid(), type: z.literal('error'), message: z.string().max(MAX_STATE_MESSAGE_CHARS) })
+      .strict(),
+  ]),
   historyQuery: historyQuerySchema,
   historyId: z.string().uuid(),
   windowAction: z.enum(['minimize', 'maximize-toggle', 'close'] as [

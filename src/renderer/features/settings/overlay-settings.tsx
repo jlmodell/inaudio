@@ -10,8 +10,8 @@ import { OverlayPlacement } from './overlay-placement';
 import { ShortcutInput } from './shortcut-input';
 
 /**
- * The four toggles that decide which sections the pill has room for. Each one feeds
- * overlayPillWidth(), so flipping it resizes the window on the next sync.
+ * The four toggles that decide which sections the pill may show. Each one feeds
+ * overlayPillWidth(), which counts a section only while it is drawn.
  */
 const SECTIONS = [
   { key: 'showTimer', label: 'Elapsed time', description: 'How long the current recording has been running.' },

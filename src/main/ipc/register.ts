@@ -171,6 +171,18 @@ export function registerIpc(services: Services): void {
       settings.update({ overlay: { enabled: false } });
       return;
     }
+    if (command === 'read-pause') {
+      services.readAloud.pause();
+      return;
+    }
+    if (command === 'read-resume') {
+      services.readAloud.resume();
+      return;
+    }
+    if (command === 'read-stop') {
+      services.readAloud.stop();
+      return;
+    }
     // open-app and open-audio both need the real window, which the overlay does not own.
     const win = services.window();
     if (!win || win.isDestroyed()) return;
@@ -191,7 +203,11 @@ export function registerIpc(services: Services): void {
     inserter.insert(text, { restoreClipboard: settings.get().dictation.restoreClipboard }),
   );
   handle(IPC.clipboardWrite, schemas.text, (text) => inserter.copy(text));
-  handle(IPC.clipboardRead, none, () => services.readClipboard());
+
+  handleOn('main', IPC.readAloudGet, none, () => services.readAloud.snapshot());
+  handleOn('main', IPC.readAloudStart, schemas.readAloudStart, (input) => services.readAloud.start(input));
+  handleOn('main', IPC.readAloudControl, schemas.readAloudControl, (input) => services.readAloud.control(input));
+  listen('main', IPC.readAloudReport, schemas.readAloudReport, (report) => services.readAloud.report(report));
 
   handle(IPC.ttsSpeak, schemas.speak, async ({ text, voiceId, speed }) => {
     const tts = settings.get().tts;

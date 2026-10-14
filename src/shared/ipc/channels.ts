@@ -28,8 +28,11 @@ export const IPC = {
   overlayMenu: 'overlay:menu',
   textInsert: 'text:insert',
   clipboardWrite: 'clipboard:write',
-  clipboardRead: 'clipboard:read',
   ttsSpeak: 'tts:speak',
+  readAloudGet: 'read-aloud:get',
+  readAloudStart: 'read-aloud:start',
+  readAloudControl: 'read-aloud:control',
+  readAloudReport: 'read-aloud:report',
   historyList: 'history:list',
   historyRemove: 'history:remove',
   historyClear: 'history:clear',
@@ -50,6 +53,9 @@ export const EVENTS = {
   companionState: 'event:companion-state',
   companionGaze: 'event:companion-gaze',
   updateState: 'event:update-state',
+  readAloudSession: 'event:read-aloud-session',
+  readAloudState: 'event:read-aloud-state',
+  readAloudChunk: 'event:read-aloud-chunk',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

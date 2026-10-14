@@ -25,6 +25,17 @@ export class PowerShellHelper {
     return this.ready;
   }
 
+  /** Starts the helper if needed and resolves true once it can take a request, false on timeout or exit. */
+  async whenReady(timeoutMs: number): Promise<boolean> {
+    this.warm();
+    const until = Date.now() + timeoutMs;
+    while (!this.ready) {
+      if (!this.child || Date.now() >= until) return false;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return true;
+  }
+
   /** True from start until the process exits or is disposed. */
   get running(): boolean {
     return this.child !== null;

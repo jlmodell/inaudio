@@ -1,11 +1,12 @@
 import { screen, type BrowserWindow, type Display } from 'electron';
 import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
 import type { Settings } from '@shared/domain/settings';
-import type { AudioDevice, DictationState, OverlayState } from '@shared/domain/system';
+import type { AudioDevice, DictationState, OverlayReading, OverlayState } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
 import { isWayland, overlaySupport } from '../app/platform';
 import { registerSurface } from '../security/surfaces';
-import { createOverlayWindow, OVERLAY_MARGIN, overlaySize } from '../windows/overlay-window';
+import { createOverlayWindow } from '../windows/overlay-window';
+import { OVERLAY_MARGIN, overlayAlign, overlaySize, type OverlayContent } from '../windows/overlay-size';
 
 interface OverlayOptions {
   settings(): Settings;
@@ -32,6 +33,7 @@ export class OverlayController {
   private menu = false;
   private disposed = false;
   private dictation: DictationState = { phase: 'idle', startedAt: 0, level: 0, message: '' };
+  private reading: OverlayReading | null = null;
   private readonly onDisplayChange = () => this.place();
 
   constructor(private readonly options: OverlayOptions) {
@@ -72,6 +74,18 @@ export class OverlayController {
     if (this.dictation.level === level) return;
     this.dictation = { ...this.dictation, level };
     if (!this.disposed) this.push();
+  }
+
+  /** A read-aloud session to show while dictation is idle, or null once it is over. */
+  setReading(reading: OverlayReading | null): void {
+    if (JSON.stringify(reading) === JSON.stringify(this.reading)) return;
+    this.reading = reading;
+    if (this.disposed) return;
+    if (!reading && this.dictation.phase === 'idle') {
+      this.hover = false;
+      this.menu = false;
+    }
+    this.sync();
   }
 
   phase(): DictationState['phase'] {
@@ -142,7 +156,7 @@ export class OverlayController {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
     const { overlay } = this.options.settings();
-    const wanted = overlay.visibility === 'always' || this.dictation.phase !== 'idle';
+    const wanted = overlay.visibility === 'always' || this.dictation.phase !== 'idle' || this.reading !== null;
     if (wanted === win.isVisible()) {
       if (wanted) win.moveTop();
       return;
@@ -185,11 +199,7 @@ export class OverlayController {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
     const { overlay } = this.options.settings();
-    const { width, height } = overlaySize(overlay, {
-      menuOpen: this.menu,
-      message: this.dictation.phase === 'error' && this.dictation.message !== '',
-      controls: this.armed(),
-    });
+    const { width, height } = overlaySize(overlay, this.content());
     const area = this.display().workArea;
     const anchorTop = overlay.position.startsWith('top');
 
@@ -210,6 +220,23 @@ export class OverlayController {
       width,
       height,
     });
+  }
+
+  /** What the pill draws right now. The window is sized from this, not from the settings alone. */
+  private content(): OverlayContent {
+    const settings = this.options.settings();
+    return {
+      phase: this.dictation.phase,
+      armed: this.armed(),
+      message: this.dictation.phase === 'error' && this.dictation.message !== '',
+      menuOpen: this.menu,
+      devices: this.options.devices().length,
+      language: MODEL_CATALOG[settings.stt.modelId].languages.length > 1,
+      reading:
+        this.dictation.phase === 'idle' && this.reading
+          ? { message: this.reading.status === 'error' && this.reading.message !== '' }
+          : null,
+    };
   }
 
   private display(): Display {
@@ -246,6 +273,7 @@ export class OverlayController {
       // `place()` pins this edge and grows the window on the free side, so the renderer
       // aligns the pill here and opens its panels into the room it was given.
       anchor: overlay.position.startsWith('top') ? 'top' : 'bottom',
+      align: overlayAlign(overlay.position),
       accentTone: appearance.accentTone,
       // The window was sized from these same four flags, so the renderer draws a section
       // exactly when the box has room for it. It never decides its own extent.
@@ -259,6 +287,7 @@ export class OverlayController {
       deviceId: settings.audio.inputDeviceId,
       modelId: settings.stt.modelId,
       animate: appearance.animations === 'full',
+      reading: this.reading,
     };
   }
 }

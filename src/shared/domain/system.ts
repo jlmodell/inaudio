@@ -22,7 +22,13 @@ export type InsertionSupport =
 /** Whether a configured accelerator is held by this app, taken, or turned off. */
 export type ShortcutStatus = 'registered' | 'unavailable' | 'off';
 
-export type ShortcutId = 'dictation' | 'readAloud' | 'cancel' | 'overlay';
+export type ShortcutId =
+  | 'dictation'
+  | 'readAloud'
+  | 'readAloudPause'
+  | 'readAloudStop'
+  | 'cancel'
+  | 'overlay';
 
 export type ShortcutState = Record<ShortcutId, ShortcutStatus>;
 
@@ -111,6 +117,11 @@ export interface OverlayState extends DictationState {
    * pill sits against this edge and panels open away from it.
    */
   anchor: 'top' | 'bottom';
+  /**
+   * The horizontal edge the pill holds. The pill is as wide as what it shows, and the main
+   * process sizes the window from the same rule, so leftover room is transparent margin.
+   */
+  align: 'left' | 'center' | 'right';
   /** The app's accent tone, so the overlay matches it without reading settings itself. */
   accentTone: AccentTone;
   showTimer: boolean;
@@ -127,6 +138,20 @@ export interface OverlayState extends DictationState {
   modelId: string;
   /** False when the user has turned animations down, so the pill holds still. */
   animate: boolean;
+  /** A read-aloud session the pill shows while dictation is idle, or null. */
+  reading: OverlayReading | null;
+}
+
+/** The part of a read-aloud session the overlay draws. */
+export interface OverlayReading {
+  status: 'capturing' | 'preparing' | 'playing' | 'paused' | 'error';
+  /** Zero-based segment being read. */
+  index: number;
+  count: number;
+  /** Synthesis for the current segment has not finished yet. */
+  waiting: boolean;
+  /** Why a capture or session failed; shown in place of the readout. */
+  message: string;
 }
 
 /**
@@ -134,7 +159,18 @@ export interface OverlayState extends DictationState {
  * process only accepts one it is already offering in the state above.
  */
 export type OverlayAction =
-  | { type: 'start' | 'stop' | 'cancel' | 'hide' | 'open-app' | 'open-audio' }
+  | {
+      type:
+        | 'start'
+        | 'stop'
+        | 'cancel'
+        | 'hide'
+        | 'open-app'
+        | 'open-audio'
+        | 'read-pause'
+        | 'read-resume'
+        | 'read-stop';
+    }
   | { type: 'select-microphone'; id: string }
   | { type: 'select-model'; id: string };
 
@@ -165,7 +201,6 @@ export type AppCommand =
   | 'dictation:start'
   | 'dictation:stop'
   | 'dictation:cancel'
-  | 'read-aloud:clipboard'
   | 'navigate:dictation'
   | 'navigate:history'
   | 'navigate:read-aloud'

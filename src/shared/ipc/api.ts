@@ -15,6 +15,14 @@ import type {
 import type { ExternalLinkId } from './schemas';
 import type { CompanionGaze, CompanionId, CompanionSnapshot } from '../domain/companion';
 import type { UpdateStatus } from '../domain/update';
+import type {
+  ReadAloudChunk,
+  ReadAloudControl,
+  ReadAloudReport,
+  ReadAloudSession,
+  ReadAloudStart,
+  ReadAloudState,
+} from '../domain/read-aloud';
 
 export interface TranscribeResult {
   transcript: Transcript | null;
@@ -87,10 +95,18 @@ export interface InaudioApi {
   text: {
     insert(text: string): Promise<void>;
     copy(text: string): Promise<void>;
-    readClipboard(): Promise<string>;
   };
   tts: {
     speak(input: { text: string; voiceId?: VoiceId; speed?: number }): Promise<SpeakResult>;
+  };
+  readAloud: {
+    /** The current session and its state, for a window that opens after it started. */
+    get(): Promise<{ session: ReadAloudSession | null; state: ReadAloudState }>;
+    /** Starts a session from the selection, the clipboard or typed text; replaces any running one. */
+    start(input: ReadAloudStart): Promise<{ sessionId: string | null }>;
+    control(input: ReadAloudControl): Promise<void>;
+    /** The player reporting a finished segment or a playback failure. */
+    report(report: ReadAloudReport): void;
   };
   history: {
     list(query: HistoryQuery): Promise<HistoryPage>;
@@ -114,5 +130,8 @@ export interface InaudioApi {
     /** Companion window only: where its eyes should look. */
     onCompanionGaze(listener: (gaze: CompanionGaze) => void): Unsubscribe;
     onUpdateState(listener: (status: UpdateStatus) => void): Unsubscribe;
+    onReadAloudSession(listener: (session: ReadAloudSession) => void): Unsubscribe;
+    onReadAloudState(listener: (state: ReadAloudState) => void): Unsubscribe;
+    onReadAloudChunk(listener: (chunk: ReadAloudChunk) => void): Unsubscribe;
   };
 }

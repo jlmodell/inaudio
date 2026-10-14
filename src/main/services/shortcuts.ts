@@ -9,6 +9,8 @@ const UNAVAILABLE: ShortcutStatus = 'unavailable';
 const EMPTY: ShortcutState = {
   dictation: OFF,
   readAloud: OFF,
+  readAloudPause: OFF,
+  readAloudStop: OFF,
   cancel: OFF,
   overlay: OFF,
 };
@@ -25,6 +27,8 @@ export class ShortcutService {
     private readonly handlers: {
       dictation(): void;
       readAloud(): void;
+      readAloudPause(): void;
+      readAloudStop(): void;
       cancel(): void;
       overlay(): void;
     },
@@ -35,6 +39,8 @@ export class ShortcutService {
     this.state = {
       dictation: this.register(settings.dictation.shortcut, this.handlers.dictation),
       readAloud: this.register(settings.tts.shortcut, this.handlers.readAloud),
+      readAloudPause: this.register(settings.tts.pauseShortcut, this.handlers.readAloudPause),
+      readAloudStop: this.register(settings.tts.stopShortcut, this.handlers.readAloudStop),
       cancel: this.register(settings.dictation.cancelShortcut, this.handlers.cancel),
       overlay: this.register(settings.overlay.toggleShortcut, this.handlers.overlay),
     };
