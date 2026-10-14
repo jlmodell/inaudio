@@ -13,11 +13,7 @@ import type {
   WindowAction,
 } from '../domain/system';
 import type { ExternalLinkId } from './schemas';
-import type {
-  CompanionPackage,
-  CompanionSnapshot,
-  CompanionSettings,
-} from '../domain/companion';
+import type { CompanionGaze, CompanionId, CompanionSnapshot } from '../domain/companion';
 import type { UpdateStatus } from '../domain/update';
 
 export interface TranscribeResult {
@@ -102,10 +98,8 @@ export interface InaudioApi {
     clear(): Promise<void>;
   };
   companions: {
-    list(): Promise<CompanionPackage[]>;
     get(): Promise<CompanionSnapshot>;
-    select(id: string): Promise<CompanionSnapshot>;
-    update(settings: CompanionSettings): Promise<CompanionSnapshot>;
+    select(id: CompanionId): Promise<CompanionSnapshot>;
     setVisibility(visible: boolean): Promise<CompanionSnapshot>;
     hover(hovering: boolean): void;
     click(): Promise<CompanionSnapshot>;
@@ -117,6 +111,8 @@ export interface InaudioApi {
     onSettingsChanged(listener: (settings: Settings) => void): Unsubscribe;
     onOverlayState(listener: (state: OverlayState) => void): Unsubscribe;
     onCompanionState(listener: (snapshot: CompanionSnapshot) => void): Unsubscribe;
+    /** Companion window only: where its eyes should look. */
+    onCompanionGaze(listener: (gaze: CompanionGaze) => void): Unsubscribe;
     onUpdateState(listener: (status: UpdateStatus) => void): Unsubscribe;
   };
 }

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { CompanionSettings } from '@shared/domain/companion';
+import {
+  COMPANIONS,
+  type CompanionEvent,
+  type CompanionSettings,
+} from '@shared/domain/companion';
 import type { SettingsPatch } from '@shared/domain/settings';
 import { PageHeader, Row, Section } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
@@ -8,9 +11,9 @@ import { Slider } from '@renderer/components/ui/slider';
 import { Switch } from '@renderer/components/ui/switch';
 import { api } from '@renderer/lib/api';
 import { useSettings, useUpdateSettings } from '@renderer/lib/queries';
-import { BuddySprite } from './buddy-sprite';
+import { CompanionAvatar, companionExpression } from './companion-avatar';
 
-const STATES = [
+const STATES: readonly (readonly [CompanionEvent, string])[] = [
   ['dictation.started', 'When I start listening'],
   ['transcription.completed', 'When transcription finishes'],
   ['tts.started', 'When Inaudio speaks'],
@@ -18,35 +21,33 @@ const STATES = [
   ['model.missing', 'When a model is unavailable'],
   ['app.error', 'When something goes wrong'],
   ['companion.clicked', 'When I interact with it'],
-] as const;
+];
+
+type DraftKey = 'scale' | 'edgeMargin' | 'soundVolume' | 'idleSleepMinutes' | 'hue';
 
 export function CompanionPage() {
   const { data: settings } = useSettings();
-  const packages = useQuery({ queryKey: ['companions'], queryFn: () => api.companions.list() });
   const update = useUpdateSettings();
-  const [drafts, setDrafts] = useState<Partial<Pick<CompanionSettings, 'scale' | 'edgeMargin' | 'soundVolume' | 'idleSleepMinutes'>>>({});
+  const [drafts, setDrafts] = useState<Partial<Pick<CompanionSettings, DraftKey>>>({});
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (update.error) setError(update.error instanceof Error ? update.error.message : String(update.error));
   }, [update.error]);
-  if (!settings || !packages.data) return null;
+  if (!settings) return null;
   const companionSettings = settings.companion;
-  const selected = packages.data.find((item) => item.id === companionSettings.activeId) ?? packages.data[0];
+  const selected = COMPANIONS.find((item) => item.id === companionSettings.activeId) ?? COMPANIONS[0];
   if (!selected) return null;
 
   const change = (patch: SettingsPatch['companion']) => {
     setError(null);
     update.mutate({ companion: patch });
   };
-  const reactionChange = (event: keyof CompanionSettings['reactions'], enabled: boolean) => {
-    change({ reactions: { [event]: { ...companionSettings.reactions[event], enabled } } });
-  };
-  const draftValue = <K extends keyof typeof drafts>(key: K, value: CompanionSettings[K]) =>
+  const draftValue = <K extends DraftKey>(key: K, value: CompanionSettings[K]) =>
     drafts[key] ?? value;
-  const setDraft = <K extends keyof typeof drafts>(key: K, value: CompanionSettings[K]) => {
+  const setDraft = <K extends DraftKey>(key: K, value: CompanionSettings[K]) => {
     setDrafts((current) => ({ ...current, [key]: value }));
   };
-  const commitDraft = <K extends keyof typeof drafts>(key: K, value: CompanionSettings[K]) => {
+  const commitDraft = <K extends DraftKey>(key: K, value: CompanionSettings[K]) => {
     setDraft(key, value);
     change({ [key]: value } as SettingsPatch['companion']);
   };
@@ -73,7 +74,7 @@ export function CompanionPage() {
 
       <section className="grid gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
         <div className="grid gap-3 sm:grid-cols-3">
-          {packages.data.map((item) => (
+          {COMPANIONS.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -83,11 +84,16 @@ export function CompanionPage() {
                   setError(reason instanceof Error ? reason.message : String(reason));
                 });
               }}
-              className={`grid gap-3 rounded-xl border p-4 text-left transition-colors ${
+              className={`grid justify-items-center gap-3 rounded-xl border p-4 text-center transition-colors ${
                 item.id === selected.id ? 'border-accent bg-accent-soft' : 'border-line bg-sunken hover:bg-line'
               }`}
             >
-              <BuddySprite companion={item} size="small" />
+              <CompanionAvatar
+                companion={item}
+                settings={companionSettings}
+                expression={companionExpression('idle', companionSettings.personality)}
+                size={56}
+              />
               <span>
                 <span className="block text-sm font-semibold">{item.displayName}</span>
                 <span className="mt-1 block text-xs text-muted">{item.description}</span>
@@ -97,7 +103,12 @@ export function CompanionPage() {
         </div>
         <div className="grid min-h-56 place-items-center rounded-xl border border-line bg-canvas p-6">
           <div className="grid justify-items-center gap-3">
-            <BuddySprite companion={selected} size="large" />
+            <CompanionAvatar
+              companion={selected}
+              settings={companionSettings}
+              expression={companionExpression('idle', companionSettings.personality)}
+              size={128}
+            />
             <span className="text-sm font-medium">{selected.displayName} preview</span>
           </div>
         </div>
@@ -117,6 +128,46 @@ export function CompanionPage() {
             />
             <span className="w-12 text-right font-mono text-sm">{Math.round(draftValue('scale', companionSettings.scale) * 100)}%</span>
           </div>
+        </Row>
+        <Row label="Color" description="Its own color, the app's accent, or a custom hue.">
+          <Select
+            label="Color"
+            value={companionSettings.color}
+            onValueChange={(color) => change({ color: color as CompanionSettings['color'] })}
+            options={[
+              { value: 'own', label: 'Its own' },
+              { value: 'accent', label: 'App accent' },
+              { value: 'custom', label: 'Custom' },
+            ]}
+          />
+        </Row>
+        {companionSettings.color === 'custom' && (
+          <Row label="Custom hue" description="The color wheel position, in degrees.">
+            <div className="flex w-56 items-center gap-3">
+              <Slider
+                aria-label="Custom hue"
+                min={0}
+                max={359}
+                step={1}
+                value={[draftValue('hue', companionSettings.hue)]}
+                onValueChange={([hue]) => hue !== undefined && setDraft('hue', hue)}
+                onValueCommit={([hue]) => hue !== undefined && commitDraft('hue', hue)}
+              />
+              <span className="w-12 text-right font-mono text-sm">{draftValue('hue', companionSettings.hue)}°</span>
+            </div>
+          </Row>
+        )}
+        <Row label="Backdrop" description="A soft shape behind the companion instead of bare desktop.">
+          <Select
+            label="Backdrop"
+            value={companionSettings.backdrop}
+            onValueChange={(backdrop) => change({ backdrop: backdrop as CompanionSettings['backdrop'] })}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'circle', label: 'Circle' },
+              { value: 'squircle', label: 'Squircle' },
+            ]}
+          />
         </Row>
         <Row label="Desktop position" description="The position is clamped to the active display work area.">
           <Select
@@ -155,15 +206,10 @@ export function CompanionPage() {
           />
         </Row>
         <Row label="Status bubble" description="Show the live listening, transcribing, and speaking label.">
-          <Select
-            label="Status bubble"
-            value={companionSettings.bubble}
-            onValueChange={(bubble) => change({ bubble: bubble as CompanionSettings['bubble'] })}
-            options={[
-              { value: 'auto', label: 'Automatic' },
-              { value: 'above', label: 'Above buddy' },
-              { value: 'hidden', label: 'Hidden' },
-            ]}
+          <Switch
+            aria-label="Status bubble"
+            checked={companionSettings.showBubble}
+            onCheckedChange={(showBubble) => change({ showBubble })}
           />
         </Row>
         <Row label="Click-through" description="Let clicks pass to the window behind the companion.">
@@ -197,6 +243,20 @@ export function CompanionPage() {
               { value: 'reduced', label: 'Reduced' },
               { value: 'off', label: 'Off' },
             ]}
+          />
+        </Row>
+        <Row label="Follow your cursor" description="Its eyes track the pointer and the field you type in.">
+          <Switch
+            aria-label="Follow your cursor"
+            checked={companionSettings.eyesFollow}
+            onCheckedChange={(eyesFollow) => change({ eyesFollow })}
+          />
+        </Row>
+        <Row label="Idle moods" description="While idle, the face drifts through small expressions now and then.">
+          <Switch
+            aria-label="Idle moods"
+            checked={companionSettings.idleMoods}
+            onCheckedChange={(idleMoods) => change({ idleMoods })}
           />
         </Row>
         <Row label="Spoken reactions" description="Speak the same status text shown in the companion bubble.">
@@ -250,8 +310,8 @@ export function CompanionPage() {
           <Row key={event} label={label}>
             <Switch
               aria-label={label}
-              checked={companionSettings.reactions[event].enabled}
-              onCheckedChange={(enabled) => reactionChange(event, enabled)}
+              checked={companionSettings.reactions[event]}
+              onCheckedChange={(enabled) => change({ reactions: { [event]: enabled } })}
             />
           </Row>
         ))}

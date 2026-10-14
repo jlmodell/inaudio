@@ -1,0 +1,5 @@
+provider: github
+owner: shikki841
+repo: inaudio
+releaseType: release
+updaterCacheDirName: inaudio-updater

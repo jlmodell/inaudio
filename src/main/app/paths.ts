@@ -12,7 +12,6 @@ export interface AppPaths {
   logs: string;
   database: string;
   settings: string;
-  companions: string;
 }
 
 let cached: AppPaths | null = null;
@@ -30,9 +29,8 @@ export function appPaths(): AppPaths {
     logs: path.join(data, 'logs'),
     database: path.join(data, 'history.sqlite3'),
     settings: path.join(data, 'settings.json'),
-    companions: path.join(data, 'companions'),
   };
-  for (const dir of [cached.models, cached.downloads, cached.cache, cached.audio, cached.history, cached.logs, cached.companions]) {
+  for (const dir of [cached.models, cached.downloads, cached.cache, cached.audio, cached.history, cached.logs]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   return cached;

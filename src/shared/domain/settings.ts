@@ -2,7 +2,9 @@ import { z } from 'zod';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema } from './models';
 import {
   DEFAULT_COMPANION_SETTINGS,
+  companionSettingsPatchSchema,
   companionSettingsSchema,
+  migrateLegacyCompanion,
 } from './companion';
 
 /** Accelerator tokens Electron accepts, split into modifiers and keys. */
@@ -288,7 +290,7 @@ export const settingsPatchSchema = z
     tray: settingsSchema.shape.tray.partial().strict().optional(),
     system: settingsSchema.shape.system.partial().strict().optional(),
     updates: settingsSchema.shape.updates.partial().strict().optional(),
-    companion: settingsSchema.shape.companion.partial().strict().optional(),
+    companion: companionSettingsPatchSchema.optional(),
   })
   .strict();
 
@@ -328,7 +330,11 @@ function groupShape(key: GroupKey): Record<string, z.ZodType> {
  * discarded, and anything missing falls back to the default. Only JSON values are read:
  * no key from the input is ever used as a property name or evaluated.
  */
-export function coerceSettings(raw: unknown): Settings {
+export function coerceSettings(input: unknown): Settings {
+  const raw =
+    isRecord(input) && isRecord(input.companion)
+      ? { ...input, companion: migrateLegacyCompanion(input.companion) }
+      : input;
   const direct = settingsSchema.safeParse(raw);
   if (direct.success) return direct.data;
 
