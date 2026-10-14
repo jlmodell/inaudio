@@ -118,10 +118,7 @@ export class SegmentPlayer {
 
   stop(): void {
     this.paused = false;
-    this.stopSource();
-    if (this.context && this.context.state !== 'closed') void this.context.close();
-    this.context = null;
-    this.gain = null;
+    this.teardown();
   }
 
   private stopSource(): void {
@@ -134,11 +131,19 @@ export class SegmentPlayer {
     }
   }
 
+  private teardown(): void {
+    this.stopSource();
+    if (this.context && this.context.state !== 'closed') void this.context.close();
+    this.context = null;
+    this.gain = null;
+  }
+
   private async open(sampleRate: number, deviceId: string): Promise<AudioContext> {
     if (this.context && this.context.state !== 'closed' && this.sampleRate === sampleRate && this.deviceId === deviceId) {
       return this.context;
     }
-    this.stop();
+    // Teardown, not stop(): a pause asked for while this runs still applies to the new context.
+    this.teardown();
     const context = new AudioContext({ sampleRate });
     if (deviceId && deviceId !== 'default' && 'setSinkId' in context) {
       try {
