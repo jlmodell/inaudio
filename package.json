@@ -1,7 +1,7 @@
 {
   "name": "inaudio",
   "productName": "Inaudio",
-  "version": "1.8.0",
+  "version": "1.9.1",
   "description": "Local, offline desktop voice input: on-device speech-to-text and text-to-speech.",
   "main": ".vite/build/main.js",
   "private": true,
