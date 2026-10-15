@@ -46,7 +46,7 @@ export function TitleBar() {
   }, []);
 
   return (
-    <header className="drag flex h-[44px] items-center justify-between bg-canvas/80 px-3 backdrop-blur-sm">
+    <header className="drag flex h-[44px] items-center justify-between bg-surface/80 px-3 backdrop-blur-sm">
       <nav ref={menuBarRef} className="no-drag flex items-center gap-1" aria-label="Application menu">
         {MENUS.map((menu) => {
           const isOpen = openMenu === menu.label;

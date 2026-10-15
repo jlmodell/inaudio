@@ -4,8 +4,8 @@ import { Sidebar } from './sidebar';
 import { TitleBar } from './title-bar';
 
 /**
- * The canvas holds the sidebar; the workspace floats on it as the one
- * page-level surface, inset on top/right and flush with the bottom edge.
+ * The canvas holds the sidebar; the workspace floats on it as one
+ * full-height surface that includes the title bar and page content.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: status } = useSystemStatus();
@@ -15,9 +15,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full bg-canvas">
       <Sidebar macInset={mac} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-surface shadow-[0_0_0_1px_var(--line)]">
         <TitleBar />
-        <main className="app-scroll-area mr-3 min-h-0 flex-1 overflow-y-auto rounded-t-[6px] bg-surface shadow-[0_0_0_1px_var(--line)] [scrollbar-gutter:stable]">
+        <main className="app-scroll-area min-h-0 flex-1 overflow-y-auto bg-surface [scrollbar-gutter:stable]">
           <div className={`mx-auto w-full ${maxWidth} px-9 pt-9 pb-9`}>{children}</div>
         </main>
       </div>
