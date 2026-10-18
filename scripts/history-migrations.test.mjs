@@ -38,7 +38,7 @@ test('version 2 keeps existing rows, marks them as microphone, and keeps search 
   assert.deepEqual(search(db, 'draft'), []);
 });
 
-test('version 2 holds a long session and refuses an unknown source', () => {
+test('the latest version holds a long session and refuses an unknown source', () => {
   const db = new DatabaseSync(':memory:');
   migrate(db, MIGRATIONS.length);
   const insert = db.prepare(
@@ -48,4 +48,40 @@ test('version 2 holds a long session and refuses an unknown source', () => {
   insert.run('long', 'x'.repeat(150_000), 'system+mic');
   assert.throws(() => insert.run('too-long', 'x'.repeat(200_001), 'system'));
   assert.throws(() => insert.run('bad', 'hello', 'camera'));
+});
+
+test('version 3 keeps version 2 rows with their source and accepts the device source', () => {
+  const db = new DatabaseSync(':memory:');
+  migrate(db, 2);
+  db.prepare(
+    `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at, source)
+     VALUES ('s', 'quarterly review', 'parakeet-tdt-0.6b-v2-int8', 60000, 4000, 'en', 1, 'system+mic')`,
+  ).run();
+  assert.throws(() =>
+    db.prepare(
+      `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at, source)
+       VALUES ('d0', 'cable', 'parakeet-tdt-0.6b-v2-int8', 0, 0, '', 2, 'device')`,
+    ).run(),
+  );
+  migrate(db, 3);
+
+  assert.equal(db.prepare('SELECT source FROM transcripts WHERE id = ?').get('s').source, 'system+mic');
+  assert.deepEqual(search(db, 'quarterly'), ['s']);
+  db.prepare(
+    `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at, source)
+     VALUES ('d', 'lesson on retries', 'parakeet-tdt-0.6b-v2-int8', 1000, 100, 'en', 3, 'device')`,
+  ).run();
+  assert.deepEqual(search(db, 'retries'), ['d']);
+});
+
+test('a version 1 database upgrades straight to the latest version', () => {
+  const db = new DatabaseSync(':memory:');
+  migrate(db, 1);
+  db.prepare(
+    `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at)
+     VALUES ('a', 'old dictation', 'parakeet-tdt-0.6b-v2-int8', 1200, 300, 'en', 1)`,
+  ).run();
+  migrate(db, MIGRATIONS.length);
+  assert.equal(db.prepare('SELECT source FROM transcripts WHERE id = ?').get('a').source, 'microphone');
+  assert.deepEqual(search(db, 'dictation'), ['a']);
 });

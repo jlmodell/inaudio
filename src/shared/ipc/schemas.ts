@@ -5,7 +5,7 @@ import { historyQuerySchema, MAX_SESSION_TRANSCRIPT_CHARS } from '../domain/hist
 import { deviceIdSchema, settingsPatchSchema } from '../domain/settings';
 import { COMPANION_IDS } from '../domain/companion';
 import { MAX_READ_ALOUD_CHARS } from '../domain/read-aloud';
-import type { AppMenuCommand, WindowAction } from '../domain/system';
+import type { AppMenuCommand, LiveWindowAction, WindowAction } from '../domain/system';
 
 /** 16 kHz mono float32 for at most 10 minutes. */
 export const MAX_AUDIO_SAMPLES = 16_000 * 60 * 10;
@@ -74,6 +74,7 @@ export const schemas = {
         'read-stop',
         'live-stop',
         'live-cancel',
+        'live-window',
       ]),
     }),
     z.object({ type: z.literal('select-microphone'), id: deviceIdSchema }),
@@ -93,6 +94,31 @@ export const schemas = {
         .refine((a) => a.length > 0 && a.length <= LIVE_MAX_CHUNK_SAMPLES, 'Chunk length out of range'),
     })
     .strict(),
+  // The same shape as a chunk: it is the unfinished stretch the next chunk will hold.
+  livePreview: z
+    .object({
+      sessionId: z.string().uuid(),
+      seq: z.number().int().min(0).max(1_000_000),
+      samples: z
+        .instanceof(Float32Array)
+        .refine((a) => a.length > 0 && a.length <= LIVE_MAX_CHUNK_SAMPLES, 'Preview length out of range'),
+    })
+    .strict(),
+  liveWindowAction: z.enum([
+    'start',
+    'stop',
+    'cancel',
+    'copy',
+    'open-app',
+    'open-audio',
+    'hide',
+    'pin',
+    'collapse',
+    'expand',
+    'source-system',
+    'source-system+mic',
+    'source-device',
+  ] as [LiveWindowAction, ...LiveWindowAction[]]),
   liveReport: z.discriminatedUnion('type', [
     z.object({ type: z.literal('capturing'), sessionId: z.string().uuid(), ownAudioFiltered: z.boolean() }).strict(),
     z.object({ type: z.literal('level'), sessionId: z.string().uuid(), level: z.number().min(0).max(1) }).strict(),

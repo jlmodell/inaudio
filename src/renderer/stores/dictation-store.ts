@@ -10,6 +10,7 @@ import { api, errorMessage } from '@renderer/lib/api';
 import { queryClient, keys } from '@renderer/lib/queries';
 import type { Settings } from '@shared/domain/settings';
 import { playCue } from '@renderer/features/dictation/audio/cues';
+import { micProcessing } from '@renderer/features/dictation/audio/mic-constraints';
 import { Recorder, TARGET_RATE, trimSilence } from '@renderer/features/dictation/audio/recorder';
 import { useLive } from '@renderer/features/live/live-store';
 
@@ -114,6 +115,7 @@ export const useDictation = create<DictationState>((set, get) => {
         await recorder.start({
           deviceId: current.audio.inputDeviceId,
           gain: current.audio.inputGain,
+          processing: micProcessing(current.audio),
           onLevel: (level) => set({ level }),
         });
         if (cues(current)) void playCue('start', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });

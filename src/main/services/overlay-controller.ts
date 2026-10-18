@@ -91,7 +91,11 @@ export class OverlayController {
 
   /** A live transcript being recorded, or null once it stops. */
   setLive(live: OverlayLive | null): void {
-    const same = !!live === !!this.live && live?.startedAt === this.live?.startedAt && live?.source === this.live?.source;
+    const same =
+      !!live === !!this.live &&
+      live?.startedAt === this.live?.startedAt &&
+      live?.source === this.live?.source &&
+      live?.windowOpen === this.live?.windowOpen;
     this.live = live;
     if (same || this.disposed) return;
     if (!live && this.dictation.phase === 'idle' && !this.reading) {

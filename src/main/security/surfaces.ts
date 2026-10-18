@@ -6,7 +6,7 @@ import { assertTrustedSender } from './trusted-origin';
  * check this on top of the origin check, so the overlay cannot drive audio capture and
  * the main window cannot speak for the overlay.
  */
-export type Surface = 'main' | 'overlay' | 'companion';
+export type Surface = 'main' | 'overlay' | 'companion' | 'live';
 
 const surfaces = new Map<number, Surface>();
 

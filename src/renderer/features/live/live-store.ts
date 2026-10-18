@@ -7,6 +7,8 @@ import { SystemAudioUnavailableError, SystemRecorder } from './system-recorder';
 
 /** The overlay meter does not need more than ten updates a second. */
 const LEVEL_REPORT_MS = 100;
+/** How often the unfinished stretch is offered for the provisional line. */
+const PREVIEW_EVERY_MS = 1_500;
 
 interface LiveStore {
   /** The session as the main process owns it. */
@@ -29,6 +31,36 @@ let current: string | null = null;
 let ending: string | null = null;
 let seq = 0;
 let levelTimer: ReturnType<typeof setInterval> | undefined;
+let previewTimer: ReturnType<typeof setInterval> | undefined;
+/** A preview request is on its way; the next waits for it, so they never pile up. */
+let previewing = false;
+
+function stopPreviews(): void {
+  if (previewTimer) clearInterval(previewTimer);
+  previewTimer = undefined;
+  previewing = false;
+}
+
+/**
+ * Offers the stretch still being spoken every PREVIEW_EVERY_MS, one request at a time. The
+ * main process decides whether the engine has room for it, so this never slows a chunk.
+ */
+function startPreviews(sessionId: string): void {
+  stopPreviews();
+  previewTimer = setInterval(() => {
+    if (current !== sessionId) return stopPreviews();
+    if (previewing) return;
+    const samples = recorder.peek();
+    if (!samples) return;
+    previewing = true;
+    void api.live
+      .preview({ sessionId, seq, samples })
+      .catch(() => undefined)
+      .finally(() => {
+        previewing = false;
+      });
+  }, PREVIEW_EVERY_MS);
+}
 
 function stopLevels(): void {
   if (levelTimer) clearInterval(levelTimer);
@@ -53,7 +85,7 @@ function describe(error: unknown): string {
   const name = error instanceof DOMException ? error.name : '';
   if (name === 'NotAllowedError' || name === 'AbortError') return 'System audio capture was blocked or cancelled. Start again to retry.';
   if (name === 'InvalidStateError') return 'Start the live transcript from Inaudio, then try again.';
-  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'The selected microphone is not available.';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'The selected microphone or audio device is not available.';
   if (name === 'NotReadableError') return 'The audio device is busy or was disconnected.';
   return errorMessage(error);
 }
@@ -67,8 +99,10 @@ async function begin(command: Extract<LiveCommand, { type: 'start' }>): Promise<
     await recorder.start({
       source: command.source,
       micDeviceId: command.micDeviceId,
+      deviceId: command.deviceId,
       micGain: command.micGain,
       systemGain: command.systemGain,
+      mic: command.mic,
       onLevel: (level) => useLive.setState({ level }),
       onChunk: (samples) => {
         if (current !== sessionId) return;
@@ -83,6 +117,7 @@ async function begin(command: Extract<LiveCommand, { type: 'start' }>): Promise<
     }
     api.live.report({ type: 'capturing', sessionId, ownAudioFiltered: recorder.ownAudioFiltered });
     startLevels(sessionId);
+    if (command.preview) startPreviews(sessionId);
   } catch (error) {
     if (current !== sessionId) return;
     current = null;
@@ -94,6 +129,7 @@ async function finish(sessionId: string, reason: 'stopped' | 'track-ended'): Pro
   if (current !== sessionId || ending === sessionId) return;
   ending = sessionId;
   stopLevels();
+  stopPreviews();
   useLive.setState({ level: 0 });
   // stop() hands out the last chunk while the session is still current, so that chunk's
   // request leaves before the report and the main process waits for it.
@@ -108,6 +144,7 @@ async function abort(sessionId: string): Promise<void> {
   current = null;
   ending = null;
   stopLevels();
+  stopPreviews();
   useLive.setState({ level: 0 });
   await recorder.dispose();
 }
@@ -163,6 +200,7 @@ export function connectLive(): () => void {
   return () => {
     offs.forEach((off) => off());
     stopLevels();
+    stopPreviews();
     if (current) void recorder.dispose();
     current = null;
   };

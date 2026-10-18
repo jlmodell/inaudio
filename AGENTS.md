@@ -13,6 +13,15 @@
 - Eye tracking: main (`companion-gaze.ts` + `focus-probe.ts`, Windows `GetGUIThreadInfo`/UIA via `powershell-helper.ts`) sends window-client targets over `EVENTS.companionGaze`; the renderer feeds them to `useGaze` from `@blobatar/react/gaze`. `useGaze({ travel })` is required — `--mo-track-travel` defaults to 0.
 - Main only tracks eyes while the companion is visible, awake, `eyesFollow` on, and `motion === 'full'`; field probing also runs for `position === 'focus-area'` placement.
 
+## Live transcript
+- Capture only ever runs in the app window (surface `main`). The floating live window (`live.html`, surface `live`, `LiveWindowController`) draws pushed `LiveWindowState` and sends a fixed `liveWindowAction` enum. Copy reads the transcript in main; never give that window text-sending or capture channels.
+- A start from the tray, a shortcut or the live window opens the app window hidden (`ensureWindow` → `openWindow(false)`).
+- Sources `system` and `system+mic` use `getDisplayMedia` plus the one-shot capture grant; `device` is `getUserMedia` only (`needsDisplayCapture()`).
+- Queue priorities: dictation 100 > live chunk 50 > preview 10. `LiveCaptureController.preview()` drops a preview whenever anything else is waiting.
+- Speech cleanup (Silero VAD, GTCRN) runs inside the STT worker through `stt:transcribe`'s `cleanup` paths. The models ship in `assets/models` and are hash-checked by `CleanupModels`; see its README before replacing them.
+- Microphone `media` permission requests are granted to the `main` surface only.
+- No `Co-Authored-By` trailers in commits or PRs.
+
 ## Updates
 - `electron-updater` reads `resources/app-update.yml` for feed, cache dir, and signature config; Forge ships it via `extraResource` in `forge.config.ts` from `assets/app-update.yml`. `scripts/build-release.mjs` fails the release if the electron-builder output lacks an update manifest. Keep `assets/app-update.yml` in sync with the GitHub `shikki841/inaudio` feed if the repo moves.
 

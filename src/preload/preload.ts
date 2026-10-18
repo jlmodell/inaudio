@@ -56,6 +56,11 @@ const api: InaudioApi = {
     cancel: () => ipcRenderer.invoke(IPC.liveCancel),
     chunk: (chunk) => ipcRenderer.invoke(IPC.liveChunk, chunk),
     report: (report) => ipcRenderer.send(IPC.liveReport, report),
+    preview: (preview) => ipcRenderer.invoke(IPC.livePreview, preview),
+    openWindow: () => ipcRenderer.invoke(IPC.liveWindowOpen),
+  },
+  liveWindow: {
+    act: (action) => ipcRenderer.invoke(IPC.liveWindowAction, action),
   },
   overlay: {
     act: (action) => ipcRenderer.invoke(IPC.overlayAction, action),
@@ -101,6 +106,8 @@ const api: InaudioApi = {
     onReadAloudChunk: (listener) => subscribe(EVENTS.readAloudChunk, listener),
     onLiveState: (listener) => subscribe(EVENTS.liveState, listener),
     onLiveCommand: (listener) => subscribe(EVENTS.liveCommand, listener),
+    onLiveWindowState: (listener) => subscribe(EVENTS.liveWindowState, listener),
+    onLiveWindowLevel: (listener) => subscribe(EVENTS.liveWindowLevel, listener),
   },
 };
 

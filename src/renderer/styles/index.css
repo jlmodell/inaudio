@@ -171,6 +171,15 @@
     background: transparent;
     overflow: visible;
   }
+  /* The floating live window is a solid panel: the window itself is its frame. */
+  body[data-surface='live'] {
+    background: var(--surface);
+    cursor: default;
+  }
+  :root[data-motion='off'] body[data-surface='live'] * {
+    animation: none !important;
+    transition: none !important;
+  }
   .app-scroll-area {
     scrollbar-width: thin;
     scrollbar-color: var(--line-strong) transparent;

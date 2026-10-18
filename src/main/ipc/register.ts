@@ -88,7 +88,8 @@ export function registerIpc(services: Services): void {
     const current = settings.get();
     const modelId: ModelId = current.stt.modelId;
     // Synthesis runs in its own worker and queue, so companion speech cannot extend this wait.
-    const result = await services.runModel(modelId, () => stt.transcribe(samples, sampleRate), 100);
+    const cleanup = services.sttCleanup('dictation');
+    const result = await services.runModel(modelId, () => stt.transcribe(samples, sampleRate, cleanup), 100);
     const response: TranscribeResult = { transcript: null, text: result.text, inserted: false };
     if (!result.text) return response;
     companion.react('transcription.completed', 'ready');
@@ -145,6 +146,53 @@ export function registerIpc(services: Services): void {
   handleOn('main', IPC.liveCancel, none, () => services.live.cancel());
   handleOn('main', IPC.liveChunk, schemas.liveChunk, (chunk) => services.live.chunk(chunk));
   listen('main', IPC.liveReport, schemas.liveReport, (report) => services.live.report(report));
+  // The provisional line: dropped by the controller whenever the engine has better things to do.
+  handleOn('main', IPC.livePreview, schemas.livePreview, (preview) => services.live.preview(preview));
+  handleOn('main', IPC.liveWindowOpen, none, () => services.liveWindow.show());
+
+  // The floating live window shows a session and asks for a fixed list of things. It cannot
+  // capture, read history or send text: copy reads the transcript the main process holds.
+  handleOn('live', IPC.liveWindowAction, schemas.liveWindowAction, async (action) => {
+    switch (action) {
+      case 'start':
+        return services.live.start({ source: settings.get().live.source, acknowledged: false });
+      case 'stop':
+        return services.live.stop();
+      case 'cancel':
+        return services.live.cancel();
+      case 'copy': {
+        const text = services.live.snapshot().text;
+        if (text) await inserter.copy(text);
+        return;
+      }
+      case 'hide':
+        return services.liveWindow.hide();
+      case 'pin':
+        services.updateSettings({ liveWindow: { alwaysOnTop: !settings.get().liveWindow.alwaysOnTop } });
+        return;
+      case 'collapse':
+        return services.liveWindow.setCollapsed(true);
+      case 'expand':
+        return services.liveWindow.setCollapsed(false);
+      case 'source-system':
+      case 'source-system+mic':
+      case 'source-device':
+        if (services.live.active()) return;
+        services.updateSettings({ live: { source: action === 'source-system' ? 'system' : action === 'source-device' ? 'device' : 'system+mic' } });
+        return;
+      case 'open-app':
+      case 'open-audio': {
+        const win = services.window();
+        if (!win || win.isDestroyed()) {
+          services.showWindow();
+          return;
+        }
+        win.show();
+        win.focus();
+        win.webContents.send(EVENTS.command, action === 'open-audio' ? 'navigate:audio' : 'navigate:live');
+      }
+    }
+  });
 
   // The overlay may only ask for its fixed command list, and only from the overlay window.
   handleOn('overlay', IPC.overlayAction, schemas.overlayAction, (action) => {
@@ -199,6 +247,10 @@ export function registerIpc(services: Services): void {
     }
     if (command === 'live-cancel') {
       services.live.cancel();
+      return;
+    }
+    if (command === 'live-window') {
+      services.liveWindow.toggle();
       return;
     }
     // open-app and open-audio both need the real window, which the overlay does not own.

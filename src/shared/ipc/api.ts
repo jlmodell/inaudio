@@ -1,4 +1,4 @@
-import type { LiveChunk, LiveCommand, LiveReport, LiveStartInput, LiveState } from '../domain/capture';
+import type { LiveChunk, LiveCommand, LivePreview, LiveReport, LiveStartInput, LiveState } from '../domain/capture';
 import type { HistoryPage, HistoryQuery, Transcript } from '../domain/history';
 import type { ModelId, ModelStatus, VoiceId } from '../domain/models';
 import type { Settings, SettingsPatch } from '../domain/settings';
@@ -7,6 +7,8 @@ import type {
   AppCommand,
   AudioDevice,
   DictationState,
+  LiveWindowAction,
+  LiveWindowState,
   ModelProgressEvent,
   OverlayAction,
   OverlayState,
@@ -94,6 +96,17 @@ export interface InaudioApi {
     chunk(chunk: LiveChunk): Promise<void>;
     /** The capturing window reporting what it is actually doing. */
     report(report: LiveReport): void;
+    /**
+     * The unfinished stretch, for the provisional line. Resolves at once when the engine is
+     * busy; the main process decides whether it is worth decoding.
+     */
+    preview(preview: LivePreview): Promise<void>;
+    /** Shows the floating live window. App window only. */
+    openWindow(): Promise<void>;
+  };
+  liveWindow: {
+    /** Floating live window only: one of a fixed set of commands. It never sends text. */
+    act(action: LiveWindowAction): Promise<void>;
   };
   overlay: {
     /** Asks the main process to run one of a fixed set of overlay commands. */
@@ -149,5 +162,9 @@ export interface InaudioApi {
     onReadAloudChunk(listener: (chunk: ReadAloudChunk) => void): Unsubscribe;
     onLiveState(listener: (state: LiveState) => void): Unsubscribe;
     onLiveCommand(listener: (command: LiveCommand) => void): Unsubscribe;
+    /** Floating live window only: everything it draws. */
+    onLiveWindowState(listener: (state: LiveWindowState) => void): Unsubscribe;
+    /** Floating live window only: the input level, about ten times a second while recording. */
+    onLiveWindowLevel(listener: (level: number) => void): Unsubscribe;
   };
 }

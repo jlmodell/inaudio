@@ -1,4 +1,4 @@
-import type { LiveSource, SystemAudioSupport } from './capture';
+import type { LiveSource, LiveState, SystemAudioSupport } from './capture';
 import type { ModelStatus } from './models';
 import type { AccentTone } from './settings';
 import type { UpdateStatus } from './update';
@@ -30,7 +30,8 @@ export type ShortcutId =
   | 'readAloudStop'
   | 'cancel'
   | 'overlay'
-  | 'live';
+  | 'live'
+  | 'liveWindow';
 
 export type ShortcutState = Record<ShortcutId, ShortcutStatus>;
 
@@ -44,11 +45,19 @@ export interface OverlaySupport {
   cursor: boolean;
 }
 
+/** Whether each bundled speech-cleanup model passed its hash check. */
+export interface CleanupModelsStatus {
+  vad: 'verified' | 'missing' | 'unchecked';
+  denoiser: 'verified' | 'missing' | 'unchecked';
+}
+
 export interface SystemStatus {
   platform: NodeJS.Platform;
   arch: string;
   appVersion: string;
   electronVersion: string;
+  chromeVersion: string;
+  cleanupModels: CleanupModelsStatus;
   microphonePermission: PermissionState;
   systemAudio: SystemAudioSupport;
   accessibilityTrusted: boolean | null;
@@ -152,7 +161,57 @@ export interface OverlayLive {
   source: LiveSource;
   startedAt: number;
   level: number;
+  /** The floating live window is showing, so its button is drawn pressed. */
+  windowOpen: boolean;
 }
+
+/**
+ * Everything the floating live window draws, pushed as one message. It never reads settings
+ * or the transcript on its own, and its text is only the end of the session.
+ */
+export interface LiveWindowState {
+  /** The session, with `text` cut to its last LIVE_WINDOW_TAIL_CHARS characters. */
+  live: LiveState;
+  /** The text was cut, so the start of the session is only on the Live page. */
+  truncated: boolean;
+  level: number;
+  /** Shown in the header: the device label for the `device` source. */
+  sourceLabel: string;
+  /** The source the next start would use. */
+  nextSource: LiveSource;
+  /** Why a session cannot start right now, or empty. */
+  blocked: string;
+  /** macOS asks for a screen each time, so starting shows the picker. */
+  picker: boolean;
+  model: string;
+  /** The start/stop accelerator, or empty when it is off. */
+  shortcut: string;
+  platform: NodeJS.Platform;
+  alwaysOnTop: boolean;
+  /** Shrunk to a single caption line. Main sizes the window; the page only draws it. */
+  collapsed: boolean;
+  /** Pinning is honoured on this platform (not on Wayland). */
+  canPin: boolean;
+  textSize: 'sm' | 'md' | 'lg';
+  accentTone: AccentTone;
+  animate: boolean;
+}
+
+/** The fixed set of things the floating live window may ask for. It never sends text. */
+export type LiveWindowAction =
+  | 'start'
+  | 'stop'
+  | 'cancel'
+  | 'copy'
+  | 'open-app'
+  | 'open-audio'
+  | 'hide'
+  | 'pin'
+  | 'collapse'
+  | 'expand'
+  | 'source-system'
+  | 'source-system+mic'
+  | 'source-device';
 
 /** The part of a read-aloud session the overlay draws. */
 export interface OverlayReading {
@@ -183,7 +242,8 @@ export type OverlayAction =
         | 'read-resume'
         | 'read-stop'
         | 'live-stop'
-        | 'live-cancel';
+        | 'live-cancel'
+        | 'live-window';
     }
   | { type: 'select-microphone'; id: string }
   | { type: 'select-model'; id: string };

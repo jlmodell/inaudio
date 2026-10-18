@@ -2,6 +2,7 @@ import type { LiveSource, SystemAudioSupport } from '@shared/domain/capture';
 import type { Settings } from '@shared/domain/settings';
 import { Badge, Row, Section } from '@renderer/components/ui/layout';
 import { RadioGroup } from '@renderer/components/ui/radio-group';
+import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
 import { Switch } from '@renderer/components/ui/switch';
 
@@ -23,10 +24,13 @@ function availability(support: SystemAudioSupport): { tone: 'success' | 'warning
 export function SystemAudioSection({
   live,
   support,
+  inputs,
   onChange,
 }: {
   live: Settings['live'];
   support: SystemAudioSupport;
+  /** Enumerated input devices, for the `device` source. */
+  inputs: { value: string; label: string }[];
   onChange(patch: Partial<Settings['live']>): void;
 }) {
   const state = availability(support);
@@ -44,9 +48,23 @@ export function SystemAudioSection({
           options={[
             { value: 'system', label: 'System audio', description: 'Everything playing through your speakers or headset.' },
             { value: 'system+mic', label: 'System audio and microphone', description: 'Adds your voice. Both go into one transcript.' },
+            {
+              value: 'device',
+              label: 'Audio device',
+              description: 'One input you choose, such as a virtual cable (VB-Cable, BlackHole). No screen capture is used.',
+            },
           ]}
         />
       </div>
+      <Row label="Audio device" description="Used by the Audio device source. Virtual cables appear here once installed.">
+        <Select
+          label="Audio device"
+          className="w-72"
+          value={live.deviceId}
+          onValueChange={(deviceId) => onChange({ deviceId })}
+          options={inputs}
+        />
+      </Row>
       <Row label="System level" description="Raise it for quiet calls.">
         <div className="flex w-72 items-center gap-3">
           <Slider
@@ -72,6 +90,22 @@ export function SystemAudioSection({
           />
           <span className="w-10 font-mono text-sm tabular-nums">{live.micGain.toFixed(1)}×</span>
         </div>
+      </Row>
+      <Row
+        label="Skip stretches without speech"
+        description="An on-device voice detector drops music, hold tones and silence before transcription, so they don’t turn into stray words."
+      >
+        <Switch
+          aria-label="Skip stretches without speech"
+          checked={live.skipNonSpeech}
+          onCheckedChange={(skipNonSpeech) => onChange({ skipNonSpeech })}
+        />
+      </Row>
+      <Row
+        label="Show text as it is heard"
+        description="A grey line updates while someone is speaking and is replaced by the finished passage. Uses more CPU."
+      >
+        <Switch aria-label="Show text as it is heard" checked={live.preview} onCheckedChange={(preview) => onChange({ preview })} />
       </Row>
       <Row label="Pause Read Aloud while recording" description="Keeps Inaudio’s own voice out of the transcript.">
         <Switch

@@ -26,20 +26,22 @@ const LABELS: Record<OverlayPosition, string> = {
   'bottom-right': 'Bottom right',
 };
 
-/** Picks which edge of the work area the overlay is pinned to. */
+/** Picks which edge of the work area a floating window is pinned to. */
 export function OverlayPlacement({
   value,
   onChange,
   disabled,
+  label = 'Overlay placement',
 }: {
   value: OverlayPosition;
   onChange(position: OverlayPosition): void;
   disabled?: boolean;
+  label?: string;
 }) {
   return (
     <div
       role="radiogroup"
-      aria-label="Overlay placement"
+      aria-label={label}
       className={cn(
         'grid grid-cols-[repeat(3,34px)] grid-rows-[repeat(3,26px)] gap-1',
         disabled && 'pointer-events-none opacity-50',

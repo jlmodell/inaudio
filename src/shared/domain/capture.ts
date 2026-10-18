@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
-/** What a live transcript records: the system mix alone, or mixed with the microphone. */
-export const LIVE_SOURCES = ['system', 'system+mic'] as const;
+/**
+ * What a live transcript records: the system mix alone, mixed with the microphone, or one
+ * input device the user picked (a virtual cable, a mixer), captured without screen capture.
+ */
+export const LIVE_SOURCES = ['system', 'system+mic', 'device'] as const;
 export const liveSourceSchema = z.enum(LIVE_SOURCES);
 export type LiveSource = z.infer<typeof liveSourceSchema>;
 
@@ -13,8 +16,23 @@ export type TranscriptSource = z.infer<typeof transcriptSourceSchema>;
 export const LIVE_SAMPLE_RATE = 16_000;
 /** No chunk is longer than the chunker's hard cut; 30 s leaves room for the search window. */
 export const LIVE_MAX_CHUNK_SAMPLES = LIVE_SAMPLE_RATE * 30;
-/** A session stops on its own after three hours. */
-export const LIVE_MAX_SESSION_MS = 3 * 60 * 60 * 1000;
+/** The session limits a user can choose, in minutes. A session stops on its own after one. */
+export const LIVE_SESSION_MINUTES = [30, 60, 120, 180] as const;
+export const liveSessionMinutesSchema = z.union([
+  z.literal(30),
+  z.literal(60),
+  z.literal(120),
+  z.literal(180),
+]);
+export type LiveSessionMinutes = z.infer<typeof liveSessionMinutesSchema>;
+/** The provisional line is one stretch of speech, so it never needs more than this. */
+export const LIVE_MAX_PREVIEW_CHARS = 2_000;
+/** The floating window shows the end of the transcript; the page has the rest. */
+export const LIVE_WINDOW_TAIL_CHARS = 8_000;
+/** Sources that go through getDisplayMedia and so need the one-shot capture grant. */
+export function needsDisplayCapture(source: LiveSource): boolean {
+  return source !== 'device';
+}
 /** Audio waiting for the engine beyond this is reported, never silently dropped. */
 export const LIVE_BACKLOG_WARN_MS = 2 * 60 * 1000;
 
@@ -38,6 +56,12 @@ export interface LiveState {
   ownAudioFiltered: boolean;
   /** One short line: why the session failed or how it ended. */
   message: string;
+  /**
+   * What the engine makes of the stretch still being spoken. Grey, provisional, and replaced
+   * when the finished chunk with `previewSeq` or later is transcribed.
+   */
+  preview: string;
+  previewSeq: number;
   /** History id of the last saved session, so the page can say it was kept. */
   savedId: string | null;
   /** Audio transcribed so far, in ms. */
@@ -55,12 +79,22 @@ export const IDLE_LIVE: LiveState = {
   behind: false,
   ownAudioFiltered: false,
   message: '',
+  preview: '',
+  previewSeq: -1,
   savedId: null,
   durationMs: 0,
 };
 
 export function liveActive(phase: LivePhase): boolean {
   return phase === 'starting' || phase === 'capturing' || phase === 'finishing';
+}
+
+/** Chromium's WebRTC processing for a microphone track, from the audio settings. */
+export interface MicProcessing {
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+  voiceIsolation: boolean;
 }
 
 /** Main → app window: what the capturing renderer must do next. */
@@ -70,8 +104,13 @@ export type LiveCommand =
       sessionId: string;
       source: LiveSource;
       micDeviceId: string;
+      /** The input recorded by the `device` source. */
+      deviceId: string;
       micGain: number;
       systemGain: number;
+      mic: MicProcessing;
+      /** Send provisional audio for the line that updates while someone speaks. */
+      preview: boolean;
     }
   | { type: 'stop'; sessionId: string }
   | { type: 'cancel'; sessionId: string }
@@ -91,6 +130,9 @@ export interface LiveChunk {
   seq: number;
   samples: Float32Array;
 }
+
+/** The unfinished stretch, sent for the provisional line. Never stored or saved. */
+export type LivePreview = LiveChunk;
 
 export interface LiveStartInput {
   source: LiveSource;

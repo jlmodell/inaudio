@@ -14,6 +14,7 @@ const EMPTY: ShortcutState = {
   cancel: OFF,
   overlay: OFF,
   live: OFF,
+  liveWindow: OFF,
 };
 
 /**
@@ -33,6 +34,7 @@ export class ShortcutService {
       cancel(): void;
       overlay(): void;
       live(): void;
+      liveWindow(): void;
     },
   ) {}
 
@@ -46,6 +48,7 @@ export class ShortcutService {
       cancel: this.register(settings.dictation.cancelShortcut, this.handlers.cancel),
       overlay: this.register(settings.overlay.toggleShortcut, this.handlers.overlay),
       live: this.register(settings.live.shortcut, this.handlers.live),
+      liveWindow: this.register(settings.liveWindow.shortcut, this.handlers.liveWindow),
     };
     return this.state;
   }

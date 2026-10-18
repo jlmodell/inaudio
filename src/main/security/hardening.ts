@@ -3,7 +3,8 @@ import { consumeCapture, isCaptureArmed } from './capture-grant';
 import { surfaceOfContents } from './surfaces';
 import { isTrustedFrame, isTrustedUrl } from './trusted-origin';
 
-const ALLOWED_PERMISSIONS = new Set(['media', 'speaker-selection', 'clipboard-sanitized-write']);
+/** Granted to any trusted window. Microphone access is not here: only the app window gets it. */
+const ALLOWED_PERMISSIONS = new Set(['speaker-selection', 'clipboard-sanitized-write']);
 
 /** Rejects a getDisplayMedia() call with an AbortError, as documented for the handler. */
 const DENY = null as unknown as Streams;
@@ -29,9 +30,10 @@ export function applySessionPolicy(): void {
     }
     if (permission === 'media' || permission === 'display-capture') {
       const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : [];
-      // Microphone requests name their media type. Camera is never granted.
+      // Microphone requests name their media type. Camera is never granted, and only the app
+      // window records: the overlay, the companion and the live window never need a microphone.
       if (permission === 'media' && types.length > 0) {
-        callback(types.every((t) => t === 'audio'));
+        callback(surfaceOfContents(webContents) === 'main' && types.every((t) => t === 'audio'));
         return;
       }
       // Electron 44 reports getDisplayMedia as `media` with no types; 45 renames it
@@ -45,6 +47,12 @@ export function applySessionPolicy(): void {
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
     if (!webContents || !isTrustedUrl(requestingOrigin)) return false;
     if (permission === 'display-capture') return captureAllowed(webContents);
+    // A check never grants capture; Chromium asks it before revealing device ids, which the
+    // companion needs to play speech on the chosen output. Requests above stay app-window only.
+    if (permission === 'media') {
+      const surface = surfaceOfContents(webContents);
+      return surface === 'main' || surface === 'companion';
+    }
     return ALLOWED_PERMISSIONS.has(permission);
   });
 

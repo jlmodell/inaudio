@@ -89,6 +89,15 @@ export class Chunker {
     return chunk;
   }
 
+  /**
+   * A copy of the speech held so far, for the provisional line, or null while it is shorter
+   * than `minMs` or holds only quiet. The buffer itself is left untouched.
+   */
+  peek(minMs = 1_000): Float32Array | null {
+    if (!this.voiced || this.length < this.samples(minMs)) return null;
+    return this.buffer.slice(0, this.length);
+  }
+
   /** Audio held but not yet emitted, in ms. */
   bufferedMs(): number {
     return (this.length / this.options.sampleRate) * 1000;

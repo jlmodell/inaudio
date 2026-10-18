@@ -63,8 +63,8 @@ function bootstrap(): void {
     mainWindow.focus();
   };
 
-  function openWindow(): BrowserWindow {
-    const win = createMainWindow();
+  function openWindow(show = true): BrowserWindow {
+    const win = createMainWindow({ show });
     registerSurface(win.webContents, 'main');
     win.webContents.on('did-finish-load', () => {
       services?.readAloud.rendererReset();
@@ -118,6 +118,7 @@ function bootstrap(): void {
       resumeReading: () => services?.readAloud.resume(),
       stopReading: () => services?.readAloud.stop(),
       toggleLive: () => services?.live.toggle(),
+      toggleLiveWindow: () => services?.liveWindow.toggle(),
       openSettings: () => {
         showWindow();
         command('navigate:settings');
@@ -158,6 +159,7 @@ function bootstrap(): void {
       if (current) services?.updateSettings({ overlay: { enabled: !current.overlay.enabled } });
     },
     live: () => services?.live.toggle(),
+    liveWindow: () => services?.liveWindow.toggle(),
   });
 
   app.on('second-instance', showWindow);
@@ -183,7 +185,7 @@ function bootstrap(): void {
       statusChanged: () => send(EVENTS.statusChanged),
       send,
       ensureWindow: () => {
-        if (!mainWindow || mainWindow.isDestroyed()) mainWindow = openWindow();
+        if (!mainWindow || mainWindow.isDestroyed()) mainWindow = openWindow(false);
       },
     });
     const s = services;
@@ -240,7 +242,8 @@ function bootstrap(): void {
         next.tts.pauseShortcut !== previous.tts.pauseShortcut ||
         next.tts.stopShortcut !== previous.tts.stopShortcut ||
         next.overlay.toggleShortcut !== previous.overlay.toggleShortcut ||
-        next.live.shortcut !== previous.live.shortcut
+        next.live.shortcut !== previous.live.shortcut ||
+        next.liveWindow.shortcut !== previous.liveWindow.shortcut
       ) {
         shortcuts.apply(next);
       }
@@ -251,7 +254,8 @@ function bootstrap(): void {
       if (
         JSON.stringify(next.tray) !== JSON.stringify(previous.tray) ||
         JSON.stringify(next.companion) !== JSON.stringify(previous.companion) ||
-        next.live.shortcut !== previous.live.shortcut
+        next.live.shortcut !== previous.live.shortcut ||
+        next.liveWindow.shortcut !== previous.liveWindow.shortcut
       ) tray.apply(next);
       send(EVENTS.settingsChanged, next);
     });

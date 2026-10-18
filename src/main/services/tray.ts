@@ -27,6 +27,7 @@ interface TrayActions {
   resumeReading(): void;
   stopReading(): void;
   toggleLive(): void;
+  toggleLiveWindow(): void;
   openSettings(): void;
   selectMicrophone(id: string): void;
   toggleOverlay(): void;
@@ -47,6 +48,7 @@ export class TrayService {
   private devices: AudioDevice[] = [];
   private reading: 'idle' | 'playing' | 'paused' = 'idle';
   private live = false;
+  private liveWindow = false;
   private titleTimer: NodeJS.Timeout | null = null;
   /** What was last drawn, so identical redraws skip rebuilding the native menu. */
   private drawn = '';
@@ -90,6 +92,13 @@ export class TrayService {
   setReading(reading: 'idle' | 'playing' | 'paused'): void {
     if (this.reading === reading) return;
     this.reading = reading;
+    this.render();
+  }
+
+  /** The floating live window is showing. */
+  setLiveWindow(open: boolean): void {
+    if (this.liveWindow === open) return;
+    this.liveWindow = open;
     this.render();
   }
 
@@ -163,7 +172,7 @@ export class TrayService {
   }
 
   private template(): MenuItemConstructorOptions[] {
-    const { dictation, tts, overlay, companion, live } = this.settings;
+    const { dictation, tts, overlay, companion, live, liveWindow } = this.settings;
     const idle = this.phase === 'idle';
     const listening = this.phase === 'listening';
     const busy = this.phase === 'transcribing' || this.phase === 'inserting';
@@ -197,6 +206,14 @@ export class TrayService {
         accelerator: hint(live.shortcut),
         registerAccelerator: false,
         click: this.actions.toggleLive,
+      },
+      {
+        label: 'Show live window',
+        type: 'checkbox',
+        checked: this.liveWindow,
+        accelerator: hint(liveWindow.shortcut),
+        registerAccelerator: false,
+        click: this.actions.toggleLiveWindow,
       },
       {
         label: 'Read selection aloud',

@@ -3,6 +3,7 @@ import {
   Loader2,
   Mic,
   Pause,
+  PictureInPicture2,
   Play,
   Square,
   TextCursorInput,
@@ -163,13 +164,22 @@ function LiveContent({ live, state, armed }: { live: OverlayLive; state: Overlay
     <>
       <Dot className="bg-record" pulse={state.animate} />
       <span className={cn(labelClass, 'text-ink')} title={live.source === 'system+mic' ? 'System audio and microphone' : undefined}>
-        System audio
+        {live.source === 'device' ? 'Audio device' : 'System audio'}
       </span>
       {state.showTimer && <Timer startedAt={live.startedAt} />}
       {state.showLevel && !armed && <LevelBars level={live.level} active animate={state.animate} />}
       {armed && (
         <>
           <Divider />
+          <button
+            type="button"
+            aria-label={live.windowOpen ? 'Hide live window' : 'Show live window'}
+            aria-pressed={live.windowOpen}
+            onClick={() => void api.overlay.act({ type: 'live-window' })}
+            className={cn(iconButtonClass, live.windowOpen && 'bg-accent-soft text-accent hover:text-accent')}
+          >
+            <PictureInPicture2 aria-hidden className="size-[15px]" />
+          </button>
           <button
             type="button"
             aria-label="Stop live transcript"

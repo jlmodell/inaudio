@@ -10,11 +10,14 @@ import {
 } from '@shared/domain/models';
 import type { AudioDevice, AppCommand, SystemStatus, WorkerHealth } from '@shared/domain/system';
 import { RESERVED_DEVICE_IDS, type Settings, type SettingsPatch } from '@shared/domain/settings';
+import type { SttCleanup } from '@shared/worker/protocol';
 import type { AppPaths } from '../app/paths';
+import { CleanupModels } from '../app/cleanup-models';
 import { DictationController } from './dictation-controller';
 import { HistoryRepository } from './history-repository';
 import { InferenceHost } from './inference-host';
 import { LiveCaptureController } from './live-capture-controller';
+import { LiveWindowController } from './live-window-controller';
 import { systemAudioSupport } from '../app/platform';
 import { ModelManager } from './model-manager';
 import { OverlayController } from './overlay-controller';
@@ -44,6 +47,9 @@ export interface Services {
   dictation: DictationController;
   readAloud: ReadAloudController;
   live: LiveCaptureController;
+  liveWindow: LiveWindowController;
+  /** Speech cleanup for a transcription, from the settings and the verified bundled models. */
+  sttCleanup(kind: 'dictation' | 'live'): SttCleanup | undefined;
   /** Records the devices the capturing window can see, for the tray and the id allow-list. */
   reportDevices(devices: AudioDevice[]): void;
   /** The devices last reported, so the overlay can offer the same set the tray does. */
@@ -53,6 +59,8 @@ export interface Services {
   /** Validates a settings patch against the known devices before persisting it. */
   updateSettings(patch: SettingsPatch): Settings;
   window(): BrowserWindow | null;
+  /** Opens or brings back the app window and focuses it. */
+  showWindow(): void;
   status(): SystemStatus;
   runModel<T>(id: ModelId, operation: () => Promise<T>, priority?: number): Promise<T>;
   ensureLoaded(id: ModelId): Promise<void>;
@@ -127,7 +135,10 @@ export function createServices(options: {
   statusChanged(): void;
   /** Pushes an event to the app window, if it exists. */
   send(channel: string, payload: unknown): void;
-  /** Opens the app window if it is gone, without waiting for it to load. */
+  /**
+   * Opens the app window if it is gone, hidden and without waiting for it to load: capture
+   * runs in it, but a start from the tray or the floating window should not pop it up.
+   */
   ensureWindow(): void;
 }): Services {
   const { paths } = options;
@@ -150,6 +161,7 @@ export function createServices(options: {
     reportedDevices.length = 0;
     reportedDevices.push(...devices);
     options.tray.setDevices(reportedDevices);
+    liveWindow.refresh();
   }
   /**
    * Rejects an input id the capturing window never enumerated. Reserved ids always pass,
@@ -161,11 +173,20 @@ export function createServices(options: {
     return reportedDevices.some((device) => device.id === id);
   }
   function applySettings(patch: SettingsPatch): Settings {
-    const deviceId = patch.audio?.inputDeviceId;
-    if (deviceId !== undefined && !knownInputDevice(deviceId)) {
-      throw new Error('Unknown input device');
+    for (const deviceId of [patch.audio?.inputDeviceId, patch.live?.deviceId]) {
+      if (deviceId !== undefined && !knownInputDevice(deviceId)) throw new Error('Unknown input device');
     }
     return settings.update(patch);
+  }
+  // Bundled speech-cleanup models are hashed once, off every status path.
+  const cleanupModels = new CleanupModels();
+  void cleanupModels.verify();
+  function sttCleanup(kind: 'dictation' | 'live'): SttCleanup | undefined {
+    const current = settings.get();
+    const cleanup: SttCleanup = {};
+    if (kind === 'live' && current.live.skipNonSpeech) cleanup.vad = cleanupModels.path('vad');
+    if (current.audio.speechCleanup) cleanup.denoiser = cleanupModels.path('denoiser');
+    return cleanup.vad || cleanup.denoiser ? cleanup : undefined;
   }
   const installedSttModels = () =>
     MODEL_IDS.filter((id) => kindOf(id) === 'stt' && models.isInstalled(id)).map(
@@ -361,13 +382,33 @@ export function createServices(options: {
   settings.on('change', (next, previous) => readAloud.onSettings(next, previous));
   // Live chunks share the speech queue with dictation but sit below it: a dictation take
   // started mid-meeting is transcribed first, and the live backlog catches up after.
+  // Previews sit below both, and the controller drops them whenever anything is waiting.
   const LIVE_PRIORITY = 50;
+  const PREVIEW_PRIORITY = 10;
+  const liveWindow = new LiveWindowController({
+    settings: () => settings.get(),
+    updateSettings: (patch) => settings.update(patch),
+    devices: () => reportedDevices,
+    support: systemAudioSupport,
+    model: () => {
+      const id = settings.get().stt.modelId;
+      return { name: MODEL_CATALOG[id].name, installed: models.isInstalled(id) };
+    },
+    onVisibility: (open) => {
+      options.tray.setLiveWindow(open);
+      live.windowChanged();
+    },
+  });
   const live = new LiveCaptureController({
     settings: () => settings.get(),
     support: systemAudioSupport,
     isInstalled: (id) => models.isInstalled(id),
     preload: (id) => void queues[kindOf(id)].serial(() => load(id), LIVE_PRIORITY).catch(() => undefined),
-    transcribe: (id, samples) => runModel(id, () => hosts.stt.transcribe(samples, 16_000), LIVE_PRIORITY),
+    transcribe: (id, samples, kind) =>
+      kind === 'final'
+        ? runModel(id, () => hosts.stt.transcribe(samples, 16_000, sttCleanup('live')), LIVE_PRIORITY)
+        : runModel(id, () => hosts.stt.transcribe(samples, 16_000), PREVIEW_PRIORITY),
+    dictating: () => overlay.phase() !== 'idle' && overlay.phase() !== 'error',
     save: (transcript) => history.add(transcript),
     window: options.window,
     ensureWindow: options.ensureWindow,
@@ -377,12 +418,16 @@ export function createServices(options: {
     tray: options.tray,
     companion,
     readAloud,
+    floating: liveWindow,
   });
+  // The window draws the model name and whether it is installed, so model changes reach it.
+  settings.on('change', () => liveWindow.sync());
+  models.on('progress', () => liveWindow.refresh());
 
   return {
     paths, settings, history, models, stt: hosts.stt, tts: hosts.tts, inserter, companion, updater,
-    shortcuts: options.shortcuts, tray: options.tray, window: options.window,
-    overlay, dictation, readAloud, live, reportDevices, updateSettings: applySettings,
+    shortcuts: options.shortcuts, tray: options.tray, window: options.window, showWindow: options.showWindow,
+    overlay, dictation, readAloud, live, liveWindow, sttCleanup, reportDevices, updateSettings: applySettings,
     listDevices: () => reportedDevices,
     installedSttModels,
     status: () => {
@@ -393,7 +438,7 @@ export function createServices(options: {
         tray: options.tray,
       });
       const win = options.window();
-      return { ...base, models: modelStatuses(), update: updater.get(), window: {
+      return { ...base, cleanupModels: cleanupModels.status(), models: modelStatuses(), update: updater.get(), window: {
         maximized: !!win && !win.isDestroyed() && win.isMaximized(),
         minimizable: !!win && !win.isDestroyed() && win.isMinimizable(),
         maximizable: !!win && !win.isDestroyed() && win.isMaximizable(),
@@ -444,6 +489,7 @@ export function createServices(options: {
       clearTimeout(idleTimers.tts);
       dictation.dispose();
       live.dispose();
+      liveWindow.destroy();
       readAloud.dispose();
       companion.dispose();
       overlay.destroy();

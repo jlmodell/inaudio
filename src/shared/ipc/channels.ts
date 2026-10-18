@@ -29,6 +29,9 @@ export const IPC = {
   liveCancel: 'live:cancel',
   liveChunk: 'live:chunk',
   liveReport: 'live:report',
+  livePreview: 'live:preview',
+  liveWindowOpen: 'live:window-open',
+  liveWindowAction: 'live-window:action',
   overlayAction: 'overlay:action',
   overlayHover: 'overlay:hover',
   overlayMenu: 'overlay:menu',
@@ -64,6 +67,8 @@ export const EVENTS = {
   readAloudChunk: 'event:read-aloud-chunk',
   liveState: 'event:live-state',
   liveCommand: 'event:live-command',
+  liveWindowState: 'event:live-window-state',
+  liveWindowLevel: 'event:live-window-level',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

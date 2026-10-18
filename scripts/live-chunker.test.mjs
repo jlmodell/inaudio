@@ -68,3 +68,22 @@ test('flush hands out the remaining speech once', () => {
   assert.ok(chunker.flush());
   assert.equal(chunker.flush(), null);
 });
+
+test('peek copies the speech held so far without taking it', () => {
+  const chunker = new Chunker();
+  feed(chunker, tone(500));
+  assert.equal(chunker.peek(), null, 'shorter than a second is not worth a guess');
+  feed(chunker, tone(1_500));
+  const first = chunker.peek();
+  assert.ok(first && ms(first) >= 1_900 && ms(first) <= 2_100);
+  first[0] = 99;
+  feed(chunker, tone(5_000), silence(800));
+  // The buffer was not changed by the copy, and peeking did not stop the chunk from ending.
+  assert.equal(chunker.peek(), null);
+});
+
+test('peek ignores held quiet', () => {
+  const chunker = new Chunker();
+  feed(chunker, silence(400));
+  assert.equal(chunker.peek(0), null);
+});

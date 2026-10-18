@@ -11,6 +11,8 @@ import { api } from '@renderer/lib/api';
 import { formatDuration, formatWhen } from '@renderer/lib/format';
 import { keys, useHistory, useSettings } from '@renderer/lib/queries';
 
+const SOURCE_LABEL = { system: 'System audio', 'system+mic': 'System + microphone', device: 'Audio device' } as const;
+
 const PAGE = 50;
 
 export function HistoryPage() {
@@ -66,7 +68,7 @@ export function HistoryPage() {
             <div className="flex items-center justify-between gap-4 text-xs text-faint">
               <span className="flex min-w-0 items-center gap-2">
                 {item.source !== 'microphone' && (
-                  <Badge tone="accent">{item.source === 'system' ? 'System audio' : 'System + microphone'}</Badge>
+                  <Badge tone="accent">{SOURCE_LABEL[item.source]}</Badge>
                 )}
                 <span className="truncate">
                   {formatWhen(item.createdAt)} · {formatDuration(item.durationMs)} · {MODEL_CATALOG[item.modelId as keyof typeof MODEL_CATALOG]?.name ?? item.modelId}

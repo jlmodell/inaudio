@@ -23,12 +23,13 @@ export function collectSystemStatus(deps: {
   inserter: TextInserter;
   overlay: OverlayController;
   tray: TrayService;
-}): Omit<SystemStatus, 'window' | 'update' | 'models'> {
+}): Omit<SystemStatus, 'window' | 'update' | 'models' | 'cleanupModels'> {
   return {
     platform: process.platform,
     arch: process.arch,
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
     microphonePermission: microphonePermission(),
     systemAudio: systemAudioSupport(),
     accessibilityTrusted:

@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto';
 import {
   IDLE_LIVE,
   LIVE_BACKLOG_WARN_MS,
-  LIVE_MAX_SESSION_MS,
+  LIVE_MAX_PREVIEW_CHARS,
   LIVE_SAMPLE_RATE,
   liveActive,
+  needsDisplayCapture,
   type LiveChunk,
   type LiveCommand,
+  type LivePreview,
   type LiveReport,
   type LiveStartInput,
   type LiveState,
@@ -27,8 +29,13 @@ interface LiveOptions {
   isInstalled(id: ModelId): boolean;
   /** Warms the recognizer while capture starts, so the first chunk does not wait for a load. */
   preload(id: ModelId): void;
-  /** Runs one chunk through the speech queue, behind any dictation. */
-  transcribe(id: ModelId, samples: Float32Array): Promise<SttResult>;
+  /**
+   * Runs audio through the speech queue, behind any dictation. A `final` chunk gets the
+   * cleanup the settings ask for; a `preview` runs bare and below every chunk.
+   */
+  transcribe(id: ModelId, samples: Float32Array, kind: 'final' | 'preview'): Promise<SttResult>;
+  /** Dictation is recording or transcribing, so previews would only slow it down. */
+  dictating(): boolean;
   save(transcript: Transcript): void;
   /** The app window, opened if needed: capture runs in its renderer. */
   window(): BrowserWindow | null;
@@ -39,12 +46,22 @@ interface LiveOptions {
   tray: { setLive(active: boolean): void };
   companion: { setLive(active: boolean): void };
   readAloud: { pause(): void };
+  /** The floating live window, which mirrors every change. */
+  floating: {
+    setLive(state: LiveState): void;
+    setLevel(level: number): void;
+    /** Capture began: the window opens if the user asked for that. */
+    sessionStarted(): void;
+    visible(): boolean;
+  };
 }
 
 /** How long the window may take to deliver a live stream. macOS waits on its own picker. */
 const START_TIMEOUT_MS = process.platform === 'darwin' ? 90_000 : 20_000;
 /** A track that ends this soon, with nothing transcribed, was blocked rather than stopped. */
 const BLOCKED_WITHIN_MS = 1_500;
+/** Previews never come closer together than this, whatever the window sends. */
+const PREVIEW_MIN_GAP_MS = 1_000;
 
 /**
  * The single authority over live transcripts. The page, the tray, the overlay and the shortcut
@@ -64,6 +81,8 @@ export class LiveCaptureController {
   private language = '';
   private inferenceMs = 0;
   private level = 0;
+  private previewing = false;
+  private lastPreviewAt = 0;
   private startTimer: NodeJS.Timeout | null = null;
   private limitTimer: NodeJS.Timeout | null = null;
 
@@ -97,8 +116,9 @@ export class LiveCaptureController {
       this.command({ type: 'consent', source });
       return;
     }
+    const display = needsDisplayCapture(source);
     const support = this.options.support();
-    if (!support.available) {
+    if (display && !support.available) {
       this.fail(support.reason);
       return;
     }
@@ -122,25 +142,37 @@ export class LiveCaptureController {
     this.options.preload(modelId);
     if (settings.live.pauseReadAloud) this.options.readAloud.pause();
 
-    armCapture(win.webContents.id);
+    // Only screen capture needs the grant. An input device goes through getUserMedia, which
+    // the permission handler already limits to microphones in the app window.
+    if (display) armCapture(win.webContents.id);
     // getDisplayMedia needs transient user activation, which a shortcut or the tray never
     // gives. A constant expression run with userGesture=true in the preload's isolated world
-    // grants it to the frame and exposes nothing.
-    await win.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: '0' }], true).catch(() => undefined);
+    // grants it to the frame and exposes nothing. Either way the call waits for a window that
+    // is still loading, so the command below reaches a page that is listening.
+    await win.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: '0' }], display).catch(() => undefined);
     if (this.state.sessionId !== sessionId) return;
+    const { audio, live } = settings;
     this.command({
       type: 'start',
       sessionId,
       source,
-      micDeviceId: settings.audio.inputDeviceId,
-      micGain: settings.live.micGain,
-      systemGain: settings.live.systemGain,
+      micDeviceId: audio.inputDeviceId,
+      deviceId: live.deviceId,
+      micGain: live.micGain,
+      systemGain: live.systemGain,
+      mic: {
+        noiseSuppression: audio.noiseSuppression,
+        echoCancellation: audio.echoCancellation,
+        autoGainControl: audio.autoGainControl,
+        voiceIsolation: audio.voiceIsolation,
+      },
+      preview: live.preview,
     });
     this.delivered = true;
     this.startTimer = setTimeout(() => {
       if (this.state.sessionId === sessionId && this.state.phase === 'starting') {
         this.command({ type: 'cancel', sessionId });
-        this.fail('System audio did not start. Try again.');
+        this.fail(display ? 'System audio did not start. Try again.' : 'The audio device did not start. Try again.');
       }
     }, START_TIMEOUT_MS);
     this.startTimer.unref();
@@ -201,6 +233,7 @@ export class LiveCaptureController {
       if (this.state.phase !== 'capturing') return;
       this.level = report.level;
       this.options.overlay.setLiveLevel(report.level);
+      this.options.floating.setLevel(report.level);
       return;
     }
     if (report.type === 'capturing') {
@@ -209,9 +242,15 @@ export class LiveCaptureController {
       if (this.startTimer) clearTimeout(this.startTimer);
       this.startTimer = null;
       this.state = { ...this.state, phase: 'capturing', startedAt: Date.now(), ownAudioFiltered: report.ownAudioFiltered };
-      this.limitTimer = setTimeout(() => this.stop(), LIVE_MAX_SESSION_MS);
+      const { maxMinutes } = this.options.settings().live;
+      this.limitTimer = setTimeout(() => {
+        const limit = maxMinutes >= 60 ? `${maxMinutes / 60}-hour` : `${maxMinutes}-minute`;
+        this.state = { ...this.state, message: `The session reached its ${limit} limit, so it ended.` };
+        this.stop();
+      }, maxMinutes * 60_000);
       this.limitTimer.unref();
       this.publish();
+      this.options.floating.sessionStarted();
       return;
     }
     if (report.type === 'error') {
@@ -226,7 +265,8 @@ export class LiveCaptureController {
         this.fail(this.blockedMessage());
         return;
       }
-      this.state = { ...this.state, phase: 'finishing', message: trackEnded ? 'System audio stopped, so the session ended.' : this.state.message };
+      const stopped = this.state.source === 'device' ? 'The audio device stopped, so the session ended.' : 'System audio stopped, so the session ended.';
+      this.state = { ...this.state, phase: 'finishing', message: trackEnded ? stopped : this.state.message };
       this.clearTimers();
       this.publish();
     }
@@ -248,7 +288,7 @@ export class LiveCaptureController {
     this.inflight++;
     this.setPending(this.state.pendingMs + ms);
     try {
-      const result = await this.options.transcribe(modelId, samples);
+      const result = await this.options.transcribe(modelId, samples, 'final');
       if (sessionId !== this.state.sessionId) return;
       this.inferenceMs += result.inferenceMs;
       if (result.language) this.language = result.language.slice(0, 16);
@@ -256,11 +296,14 @@ export class LiveCaptureController {
       if (text) this.texts.set(seq, text);
       const joined = this.joined();
       const full = joined.length >= MAX_SESSION_TRANSCRIPT_CHARS;
+      // The finished chunk replaces the provisional line that was guessed from it.
+      const settled = seq >= this.state.previewSeq;
       this.state = {
         ...this.state,
         text: full ? joined.slice(0, MAX_SESSION_TRANSCRIPT_CHARS) : joined,
         parts: this.state.parts + (text ? 1 : 0),
         durationMs: this.state.durationMs + ms,
+        ...(settled ? { preview: '', previewSeq: -1 } : {}),
       };
       if (full && this.state.phase === 'capturing') {
         this.state = { ...this.state, message: 'The transcript reached its length limit, so the session ended.' };
@@ -277,6 +320,40 @@ export class LiveCaptureController {
         this.maybeFinish();
       }
     }
+  }
+
+  /**
+   * The unfinished stretch the next chunk will hold. It is decoded only when nothing else is
+   * waiting: never during dictation, never while a chunk is in flight or the engine is
+   * behind, and never more often than PREVIEW_MIN_GAP_MS. Otherwise it is dropped, since the
+   * finished chunk replaces it anyway.
+   */
+  async preview({ sessionId, seq, samples }: LivePreview): Promise<void> {
+    if (sessionId !== this.state.sessionId || this.state.phase !== 'capturing' || seq <= this.lastSeq) return;
+    if (!this.options.settings().live.preview) return;
+    const now = Date.now();
+    if (this.previewing || now - this.lastPreviewAt < PREVIEW_MIN_GAP_MS) return;
+    if (this.inflight > 0 || this.state.behind || this.options.dictating()) return;
+    const modelId = this.modelId;
+    if (!modelId) return;
+    this.previewing = true;
+    this.lastPreviewAt = now;
+    try {
+      const result = await this.options.transcribe(modelId, samples, 'preview');
+      // Its chunk arrived meanwhile, and that chunk's own text is on the way.
+      if (sessionId !== this.state.sessionId || this.state.phase !== 'capturing' || seq <= this.lastSeq) return;
+      this.state = { ...this.state, preview: result.text.trim().slice(0, LIVE_MAX_PREVIEW_CHARS), previewSeq: seq };
+      this.publish();
+    } catch {
+      // A preview is disposable: the finished chunk is what counts.
+    } finally {
+      if (sessionId === this.state.sessionId) this.previewing = false;
+    }
+  }
+
+  /** The floating window opened or closed, so the overlay redraws its button. */
+  windowChanged(): void {
+    this.publishOverlay();
   }
 
   dispose(): void {
@@ -302,7 +379,7 @@ export class LiveCaptureController {
     const settings = this.options.settings();
     const text = this.state.text.trim();
     let savedId: string | null = null;
-    if (text && this.modelId && settings.dictation.saveHistory) {
+    if (text && this.modelId && settings.live.saveHistory) {
       savedId = randomUUID();
       try {
         this.options.save({
@@ -327,6 +404,9 @@ export class LiveCaptureController {
   }
 
   private blockedMessage(): string {
+    if (this.state.source === 'device') {
+      return 'No audio came through from the selected device. Check it in Audio settings, then try again.';
+    }
     if (process.platform === 'darwin') {
       return 'No system audio came through. Allow Inaudio under Privacy & Security > Screen & System Audio Recording, then try again.';
     }
@@ -357,6 +437,8 @@ export class LiveCaptureController {
     this.language = '';
     this.inferenceMs = 0;
     this.level = 0;
+    this.previewing = false;
+    this.lastPreviewAt = 0;
   }
 
   private clearTimers(): void {
@@ -372,9 +454,16 @@ export class LiveCaptureController {
 
   private publish(): void {
     this.options.send(EVENTS.liveState, this.state);
-    const capturing = this.state.phase === 'capturing';
-    this.options.overlay.setLive(capturing ? { source: this.state.source, startedAt: this.state.startedAt, level: this.level } : null);
-    this.options.tray.setLive(capturing);
+    this.options.floating.setLive(this.state);
+    this.publishOverlay();
+    this.options.tray.setLive(this.state.phase === 'capturing');
     this.options.companion.setLive(this.active());
+  }
+
+  private publishOverlay(): void {
+    const { phase, source, startedAt } = this.state;
+    this.options.overlay.setLive(
+      phase === 'capturing' ? { source, startedAt, level: this.level, windowOpen: this.options.floating.visible() } : null,
+    );
   }
 }

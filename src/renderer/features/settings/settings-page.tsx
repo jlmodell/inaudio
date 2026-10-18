@@ -10,6 +10,7 @@ import { api } from '@renderer/lib/api';
 import { useSettings, useSystemStatus, useUpdateActions, useUpdateSettings, useUpdateStatus } from '@renderer/lib/queries';
 import type { Settings } from '@shared/domain/settings';
 import type { ShortcutStatus } from '@shared/domain/system';
+import { LiveWindowSettings } from './live-window-settings';
 import { OverlaySettings } from './overlay-settings';
 import { ReadAloudSettings } from './read-aloud-settings';
 import { ShortcutInput } from './shortcut-input';
@@ -46,6 +47,12 @@ const SEARCH_ITEMS = [
   { id: 'settings-overlay-opacity', label: 'Overlay opacity', section: 'Overlay', keywords: 'transparent fade solid' },
   { id: 'settings-overlay-click-through', label: 'Click through', section: 'Overlay', keywords: 'mouse clicks idle ignore' },
   { id: 'settings-overlay-sections', label: 'Overlay contents', section: 'Overlay', keywords: 'timer level model language meter elapsed' },
+  { id: 'settings-live-window', label: 'Live window', section: 'Live window', keywords: 'floating live transcript captions pop out' },
+  { id: 'settings-live-window-open', label: 'Show the live window when a session starts', section: 'Live window', keywords: 'open automatically start' },
+  { id: 'settings-live-window-top', label: 'Keep the live window on top', section: 'Live window', keywords: 'always on top pin float' },
+  { id: 'settings-live-window-capture', label: 'Hide the live window from screen sharing', section: 'Live window', keywords: 'privacy content protection screenshot meeting share' },
+  { id: 'settings-live-window-text', label: 'Live window text size', section: 'Live window', keywords: 'font large small captions' },
+  { id: 'settings-live-window-position', label: 'Live window placement', section: 'Live window', keywords: 'corner position opacity' },
   { id: 'settings-tray', label: 'Tray icon', section: 'Tray', keywords: 'menu icon status notification' },
   { id: 'settings-tray-left-click', label: 'Tray left click', section: 'Tray', keywords: 'window dictate' },
   { id: 'settings-tray-microphones', label: 'Tray microphones', section: 'Tray', keywords: 'input device menu' },
@@ -56,6 +63,7 @@ const SEARCH_ITEMS = [
   { id: 'settings-shortcut-read-stop', label: 'Stop reading shortcut', section: 'Shortcuts', keywords: 'read aloud end speech' },
   { id: 'settings-shortcut-overlay', label: 'Overlay shortcut', section: 'Shortcuts', keywords: 'show hide pill' },
   { id: 'settings-shortcut-live', label: 'Live transcript shortcut', section: 'Shortcuts', keywords: 'system audio loopback meeting record' },
+  { id: 'settings-shortcut-live-window', label: 'Live window shortcut', section: 'Shortcuts', keywords: 'floating show hide captions' },
   { id: 'settings-performance', label: 'Performance', section: 'Performance', keywords: 'cpu threads power battery memory unload' },
   { id: 'settings-unload', label: 'Unload models when idle', section: 'Performance', keywords: 'memory ram free idle minutes' },
   { id: 'settings-app', label: 'App', section: 'App', keywords: 'login tray setup close quit' },
@@ -216,6 +224,20 @@ export function SettingsPage() {
         />
       </Section>
 
+      <Section
+        id="settings-live-window"
+        title="Live window"
+        description="A small floating window that shows a live transcript without opening Inaudio."
+        className="order-3"
+      >
+        <LiveWindowSettings
+          liveWindow={settings.liveWindow}
+          support={status.overlay}
+          platform={status.platform}
+          onChange={(patch) => update.mutate({ liveWindow: patch })}
+        />
+      </Section>
+
       <Section id="settings-tray" title="Tray" description="The menu bar icon and what it offers." className="order-4">
         <TraySettings
           tray={settings.tray}
@@ -306,6 +328,20 @@ export function SettingsPage() {
             platform={status.platform}
             status={status.shortcuts.live}
             onChange={(shortcut) => update.mutate({ live: { shortcut } })}
+          />
+        </Row>
+        <Row
+          id="settings-shortcut-live-window"
+          label="Show or hide the live window"
+          description={SHORTCUT_NOTE[status.shortcuts.liveWindow] ?? 'Off until you set it.'}
+        >
+          <ShortcutInput
+            label="Live window shortcut"
+            optional
+            value={settings.liveWindow.shortcut}
+            platform={status.platform}
+            status={status.shortcuts.liveWindow}
+            onChange={(shortcut) => update.mutate({ liveWindow: { shortcut } })}
           />
         </Row>
       </Section>

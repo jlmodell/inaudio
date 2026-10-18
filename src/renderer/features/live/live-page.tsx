@@ -1,6 +1,6 @@
-import { Copy, Loader2, MonitorSpeaker, Square, X } from 'lucide-react';
+import { Copy, Loader2, MonitorSpeaker, PictureInPicture2, Square, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { LiveSource } from '@shared/domain/capture';
+import { needsDisplayCapture, type LiveSource } from '@shared/domain/capture';
 import { MODEL_CATALOG } from '@shared/domain/models';
 import { Button } from '@renderer/components/ui/button';
 import { IconButton } from '@renderer/components/ui/icon-button';
@@ -18,6 +18,7 @@ import { useLive } from './live-store';
 const SOURCES: { value: LiveSource; label: string }[] = [
   { value: 'system', label: 'System audio' },
   { value: 'system+mic', label: 'System + microphone' },
+  { value: 'device', label: 'Audio device' },
 ];
 
 function useElapsed(startedAt: number) {
@@ -57,6 +58,9 @@ export function LivePage() {
   const finishing = live.phase === 'finishing';
   const active = capturing || starting || finishing;
   const source = active ? live.source : settings.live.source;
+  const display = needsDisplayCapture(source);
+  // The device source never touches screen capture, so it works where loopback does not.
+  const available = !display || support.available;
   // The platform answer, confirmed by the track once a session has run.
   const ownAudioFiltered = live.ownAudioFiltered || support.ownAudioFiltered;
   const keys = settings.live.shortcut ? formatAccelerator(settings.live.shortcut, status.platform) : null;
@@ -81,9 +85,11 @@ export function LivePage() {
   const label = capturing
     ? source === 'system+mic'
       ? 'Recording system audio and microphone'
-      : 'Recording system audio'
+      : source === 'device'
+        ? 'Recording the audio device'
+        : 'Recording system audio'
     : starting
-      ? support.mode === 'system-picker'
+      ? display && support.mode === 'system-picker'
         ? 'Choose a screen to share its audio…'
         : 'Starting…'
       : finishing
@@ -98,23 +104,39 @@ export function LivePage() {
         title="Live transcript"
         description="Transcribe audio playing on this computer, like a meeting or a video. Audio is processed here and never saved."
         actions={
-          <Segmented<LiveSource>
-            label="Audio source"
-            value={source}
-            disabled={active}
-            onValueChange={(next) => update.mutate({ live: { source: next } })}
-            options={SOURCES}
-          />
+          <>
+            <Button size="sm" onClick={() => void api.live.openWindow()}>
+              <PictureInPicture2 /> Pop out
+            </Button>
+            <Segmented<LiveSource>
+              label="Audio source"
+              value={source}
+              disabled={active}
+              onValueChange={(next) => update.mutate({ live: { source: next } })}
+              options={SOURCES}
+            />
+          </>
         }
       />
 
-      {!support.available && <Notice tone="danger">{support.reason}</Notice>}
-      {support.available && !installed && (
+      {!available && (
+        <Notice
+          tone="danger"
+          action={
+            <Button size="sm" onClick={() => update.mutate({ live: { source: 'device' } })}>
+              Use an audio device
+            </Button>
+          }
+        >
+          {support.reason}
+        </Notice>
+      )}
+      {available && !installed && (
         <Notice action={<Button size="sm" variant="primary" onClick={() => navigate('models')}>Open Models</Button>}>
           {stt.name} is not downloaded yet.
         </Notice>
       )}
-      {support.available && !ownAudioFiltered && settings.live.pauseReadAloud && !active && (
+      {display && support.available && !ownAudioFiltered && settings.live.pauseReadAloud && !active && (
         <Notice tone="neutral">
           This system can’t keep Inaudio’s own sounds out of the recording, so Read Aloud pauses while you record.
         </Notice>
@@ -132,7 +154,7 @@ export function LivePage() {
         <button
           type="button"
           onClick={onPress}
-          disabled={!support.available || !installed || starting || finishing}
+          disabled={!available || !installed || starting || finishing}
           aria-pressed={capturing}
           aria-label={capturing ? 'Stop live transcript' : 'Start live transcript'}
           className={cn(
@@ -160,6 +182,7 @@ export function LivePage() {
               <>
                 {settings.live.pauseReadAloud && 'Read Aloud is paused while this runs. '}
                 {live.parts === 1 ? '1 part transcribed.' : `${live.parts} parts transcribed.`}
+                {settings.audio.speechCleanup && ' Background noise is cleaned up.'}
               </>
             ) : keys ? (
               <span className="inline-flex flex-wrap items-center gap-2">Click to start, or press <Kbd keys={keys} /> from any app.</span>
@@ -192,7 +215,13 @@ export function LivePage() {
         </div>
         {!active && live.phase !== 'error' && live.message && <Notice tone="neutral">{live.message}</Notice>}
         <div data-selectable className={cn('min-h-16 text-base leading-relaxed break-words whitespace-pre-wrap', !hasText && 'text-faint')}>
-          {hasText ? live.text : capturing ? 'Listening. Text appears after each pause.' : 'Your transcript appears here while you record.'}
+          {hasText ? live.text : capturing && !live.preview ? 'Listening. Text appears as it is heard.' : !active ? 'Your transcript appears here while you record.' : null}
+          {active && live.preview && (
+            <span className="text-faint">
+              {hasText && '\n\n'}
+              {live.preview}
+            </span>
+          )}
         </div>
         {active && pendingSeconds > 0 && (
           <p className="text-sm text-faint">

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { utilityProcess, type UtilityProcess } from 'electron';
 import type { WorkerHealth } from '@shared/domain/system';
-import type { PingResult, SttResult, TtsResult, WorkerMessage, WorkerRequest } from '@shared/worker/protocol';
+import type { PingResult, SttCleanup, SttResult, TtsResult, WorkerMessage, WorkerRequest } from '@shared/worker/protocol';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 type RequestInput = DistributiveOmit<WorkerRequest, 'id'>;
@@ -110,8 +110,8 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     this.loaded.tts = input.modelId;
     this.emit('health', this.getHealth());
   }
-  transcribe(samples: Float32Array, sampleRate: number): Promise<SttResult> {
-    return this.request({ type: 'stt:transcribe', samples, sampleRate }) as Promise<SttResult>;
+  transcribe(samples: Float32Array, sampleRate: number, cleanup?: SttCleanup): Promise<SttResult> {
+    return this.request({ type: 'stt:transcribe', samples, sampleRate, cleanup }) as Promise<SttResult>;
   }
   speak(text: string, sid: number, speed: number): Promise<TtsResult> {
     return this.request({ type: 'tts:speak', text, sid, speed }) as Promise<TtsResult>;

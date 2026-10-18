@@ -81,8 +81,8 @@ export function overlayPillWidth(overlay: Settings['overlay'], content: OverlayC
     let width = CHROME + ICON + GAP + LABEL.live;
     if (overlay.showTimer) width += TIMER;
     if (overlay.showLevel && !armed) width += LEVEL;
-    // Stop and discard.
-    if (armed) width += DIVIDER + BUTTON * 2;
+    // Show the live window, stop and discard.
+    if (armed) width += DIVIDER + BUTTON * 3;
     return width;
   }
 

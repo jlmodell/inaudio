@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { liveSourceSchema } from './capture';
+import { liveSessionMinutesSchema, liveSourceSchema } from './capture';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema } from './models';
 import {
   DEFAULT_COMPANION_SETTINGS,
@@ -116,6 +116,11 @@ export type OverlayDisplayMode = z.infer<typeof overlayDisplaySchema>;
 
 export const OVERLAY_MIN_OPACITY = 0.4;
 
+/** The floating live window carries text, so it never fades as far as the pill can. */
+export const LIVE_WINDOW_MIN_OPACITY = 0.6;
+/** Size limits for the floating live window, in DIPs. Only its size is ever persisted. */
+export const LIVE_WINDOW_SIZE = { minWidth: 320, minHeight: 140, maxWidth: 720, maxHeight: 560 } as const;
+
 /** Accent tones the stylesheet defines, in the order they are offered. */
 export const ACCENT_TONES = ['blue', 'violet', 'green', 'amber', 'rose'] as const;
 export const accentToneSchema = z.enum(ACCENT_TONES);
@@ -160,6 +165,14 @@ export const settingsSchema = z.object({
     inputDeviceId: deviceIdSchema,
     outputDeviceId: deviceIdSchema,
     inputGain: z.number().min(0).max(2),
+    /** Chromium's WebRTC processing on microphone tracks, for dictation and the live mix. */
+    noiseSuppression: z.boolean(),
+    echoCancellation: z.boolean(),
+    autoGainControl: z.boolean(),
+    /** Applied only where `getSupportedConstraints()` reports it. */
+    voiceIsolation: z.boolean(),
+    /** Runs the bundled GTCRN speech-cleanup model before recognition. */
+    speechCleanup: z.boolean(),
   }),
   stt: z.object({
     modelId: sttModelIdSchema,
@@ -214,6 +227,27 @@ export const settingsSchema = z.object({
     /** The user has read the notice about recording other people and asked not to see it again. */
     consentAcknowledged: z.boolean(),
     shortcut: optionalAcceleratorSchema,
+    /** The input the `device` source records, such as a virtual cable. */
+    deviceId: deviceIdSchema,
+    /** Drop stretches the bundled voice detector finds no speech in. */
+    skipNonSpeech: z.boolean(),
+    /** Show a provisional line while someone is still speaking. */
+    preview: z.boolean(),
+    saveHistory: z.boolean(),
+    maxMinutes: liveSessionMinutesSchema,
+  }),
+  liveWindow: z.object({
+    openOnStart: z.boolean(),
+    alwaysOnTop: z.boolean(),
+    /** Excludes the window from screen capture where the OS allows it. */
+    hideFromCapture: z.boolean(),
+    textSize: z.enum(['sm', 'md', 'lg']),
+    opacity: z.number().min(LIVE_WINDOW_MIN_OPACITY).max(1),
+    /** The corner it opens in. A dragged position lasts until the window is closed. */
+    position: overlayPositionSchema,
+    width: z.number().int().min(LIVE_WINDOW_SIZE.minWidth).max(LIVE_WINDOW_SIZE.maxWidth),
+    height: z.number().int().min(LIVE_WINDOW_SIZE.minHeight).max(LIVE_WINDOW_SIZE.maxHeight),
+    shortcut: optionalAcceleratorSchema,
   }),
   system: z.object({
     launchAtLogin: z.boolean(),
@@ -240,6 +274,7 @@ const GROUP_KEYS = [
   'overlay',
   'tray',
   'live',
+  'liveWindow',
   'system',
   'updates',
   'companion',
@@ -268,7 +303,16 @@ export const DEFAULT_SETTINGS: Settings = {
     playCues: true,
     cueVolume: 0.8,
   },
-  audio: { inputDeviceId: 'default', outputDeviceId: 'default', inputGain: 1 },
+  audio: {
+    inputDeviceId: 'default',
+    outputDeviceId: 'default',
+    inputGain: 1,
+    noiseSuppression: true,
+    echoCancellation: true,
+    autoGainControl: true,
+    voiceIsolation: false,
+    speechCleanup: false,
+  },
   stt: { modelId: 'parakeet-tdt-0.6b-v2-int8', threads: 4 },
   tts: {
     modelId: 'kokoro-en-v0_19',
@@ -312,6 +356,22 @@ export const DEFAULT_SETTINGS: Settings = {
     pauseReadAloud: true,
     consentAcknowledged: false,
     shortcut: '',
+    deviceId: 'default',
+    skipNonSpeech: true,
+    preview: true,
+    saveHistory: true,
+    maxMinutes: 180,
+  },
+  liveWindow: {
+    openOnStart: true,
+    alwaysOnTop: true,
+    hideFromCapture: true,
+    textSize: 'md',
+    opacity: 1,
+    position: 'bottom-right',
+    width: 420,
+    height: 300,
+    shortcut: '',
   },
   system: { launchAtLogin: false, closeToTray: true, autoUnload: true, idleMinutes: 10 },
   updates: { checkAutomatically: true, downloadAutomatically: true },
@@ -332,6 +392,7 @@ export const settingsPatchSchema = z
     overlay: settingsSchema.shape.overlay.partial().strict().optional(),
     tray: settingsSchema.shape.tray.partial().strict().optional(),
     live: settingsSchema.shape.live.partial().strict().optional(),
+    liveWindow: settingsSchema.shape.liveWindow.partial().strict().optional(),
     system: settingsSchema.shape.system.partial().strict().optional(),
     updates: settingsSchema.shape.updates.partial().strict().optional(),
     companion: companionSettingsPatchSchema.optional(),
@@ -352,6 +413,7 @@ export function mergeSettings(base: Settings, patch: SettingsPatch): Settings {
     overlay: { ...base.overlay, ...patch.overlay },
     tray: { ...base.tray, ...patch.tray },
     live: { ...base.live, ...patch.live },
+    liveWindow: { ...base.liveWindow, ...patch.liveWindow },
     system: { ...base.system, ...patch.system },
     updates: { ...base.updates, ...patch.updates },
     companion: {
