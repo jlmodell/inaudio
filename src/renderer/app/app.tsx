@@ -63,6 +63,8 @@ function useMainEvents() {
       }),
       api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })),
       api.events.onHistoryChanged(() => void client.invalidateQueries({ queryKey: keys.historyAll })),
+      // Download progress is pushed as it happens, so the bar and the title bar move smoothly.
+      api.events.onUpdateState((status) => client.setQueryData(['update'], status)),
       connectReadAloud(),
       connectLive(),
     ];

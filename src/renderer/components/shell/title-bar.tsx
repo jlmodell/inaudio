@@ -4,6 +4,7 @@ import type { AppMenuCommand } from '@shared/domain/system';
 import { IconButton } from '@renderer/components/ui/icon-button';
 import { api } from '@renderer/lib/api';
 import { useSystemStatus } from '@renderer/lib/queries';
+import { UpdateIndicator } from './update-indicator';
 
 const MENUS: {
   label: string;
@@ -86,6 +87,7 @@ export function TitleBar() {
       </nav>
 
       <div className="no-drag flex items-center gap-1">
+        <UpdateIndicator />
         <button
           type="button"
           className="rounded-[6px] p-1 text-muted hover:bg-surface hover:text-ink"

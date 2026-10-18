@@ -19,13 +19,16 @@ export function Separator({ className }: { className?: string }) {
   return <SeparatorPrimitive.Root className={cn('h-px w-full bg-line', className)} />;
 }
 
-/** A titled group of rows separated by hairlines; no card chrome. */
-export function Section({ title, description, children, className, id }: { title: string; description?: ReactNode; children: ReactNode; className?: string; id?: string }) {
+/**
+ * A group of rows separated by hairlines; no card chrome. Without a title it is the whole of a
+ * page whose header already names it.
+ */
+export function Section({ title, description, children, className, id }: { title?: string; description?: ReactNode; children: ReactNode; className?: string; id?: string }) {
   return (
     <section id={id} className={cn('grid scroll-mt-6 gap-1 py-6 first:pt-0', className)}>
-      <h2 className="text-sm font-semibold tracking-wide text-faint uppercase">{title}</h2>
+      {title && <h2 className="text-sm font-semibold tracking-wide text-faint uppercase">{title}</h2>}
       {description && <p className="text-sm text-muted">{description}</p>}
-      <div className="mt-3 divide-y divide-line">{children}</div>
+      <div className={cn('divide-y divide-line', title && 'mt-3')}>{children}</div>
     </section>
   );
 }

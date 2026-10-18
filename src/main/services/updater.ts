@@ -6,6 +6,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { Settings } from '@shared/domain/settings';
 import type { UpdateStatus } from '@shared/domain/update';
+import { releaseNotesText } from '@shared/update/notes';
 
 type UpdateEvents = {
   change: [UpdateStatus];
@@ -112,7 +113,12 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
         state: this.settings.downloadAutomatically ? 'downloading' : 'available',
         availableVersion: info.version,
         releaseDate: info.releaseDate,
+        releaseName: info.releaseName?.slice(0, 200) || undefined,
+        releaseNotes: releaseNotesText(info.releaseNotes) || undefined,
         progress: this.settings.downloadAutomatically ? 0 : undefined,
+        transferred: undefined,
+        total: info.files?.reduce((sum, file) => sum + (file.size ?? 0), 0) || undefined,
+        bytesPerSecond: undefined,
         canInstall: false,
         checkedAt: Date.now(),
       });
@@ -121,13 +127,23 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
       this.update({ state: 'up-to-date', availableVersion: info.version, canInstall: false, checkedAt: Date.now() }),
     );
     autoUpdater.on('download-progress', (progress) =>
-      this.update({ state: 'downloading', progress: Math.max(0, Math.min(100, progress.percent)), canInstall: false }),
+      this.update({
+        state: 'downloading',
+        progress: Math.max(0, Math.min(100, progress.percent)),
+        transferred: Math.max(0, progress.transferred),
+        total: Math.max(0, progress.total),
+        bytesPerSecond: Math.max(0, progress.bytesPerSecond),
+        canInstall: false,
+      }),
     );
     autoUpdater.on('update-downloaded', (info) =>
       this.update({
         state: 'downloaded',
         availableVersion: info.version,
         releaseDate: info.releaseDate,
+        releaseName: info.releaseName?.slice(0, 200) || this.status.releaseName,
+        releaseNotes: releaseNotesText(info.releaseNotes) || this.status.releaseNotes,
+        bytesPerSecond: undefined,
         progress: 100,
         canInstall: true,
         checkedAt: Date.now(),

@@ -2,18 +2,23 @@ import { ArrowLeft, ArrowRight, Check, Mic } from 'lucide-react';
 import { useState } from 'react';
 import { LogoMark } from '@renderer/components/brand/logo';
 import { Button } from '@renderer/components/ui/button';
-import { Badge, Kbd, Notice } from '@renderer/components/ui/layout';
+import type { LiveSource } from '@shared/domain/capture';
+import { Badge, Notice, Row } from '@renderer/components/ui/layout';
+import { RadioGroup } from '@renderer/components/ui/radio-group';
+import { Select } from '@renderer/components/ui/select';
+import { Switch } from '@renderer/components/ui/switch';
+import { useMediaDevices } from '@renderer/features/audio/use-devices';
 import { Recorder } from '@renderer/features/dictation/audio/recorder';
 import { LevelMeter } from '@renderer/features/dictation/level-meter';
 import { ModelRow } from '@renderer/features/models/model-row';
 import { useModelStatuses } from '@renderer/features/models/use-model-statuses';
 import { OverlaySettings } from '@renderer/features/settings/overlay-settings';
+import { ShortcutInput } from '@renderer/features/settings/shortcut-input';
 import { errorMessage } from '@renderer/lib/api';
 import { cn } from '@renderer/lib/cn';
-import { formatAccelerator } from '@renderer/lib/format';
 import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
 
-const STEPS = ['Welcome', 'Microphone', 'Models', 'Shortcut', 'Overlay'] as const;
+const STEPS = ['Welcome', 'Microphone', 'Models', 'Live transcript', 'Overlay'] as const;
 const OVERLAY_STEP = STEPS.indexOf('Overlay');
 
 function MicrophoneStep() {
@@ -76,27 +81,92 @@ function ModelsStep() {
   );
 }
 
-function ShortcutStep() {
+/**
+ * The settings that decide how a live transcript behaves, in one place: what it records,
+ * whether the floating window opens, what is kept, and how to start it from any app.
+ */
+function LiveStep() {
   const { data: settings } = useSettings();
   const { data: status } = useSystemStatus();
+  const update = useUpdateSettings();
+  const inputs = useMediaDevices('audioinput');
   if (!settings || !status) return null;
+  const { live, liveWindow } = settings;
+  const support = status.systemAudio;
+  const devices = [
+    { value: 'default', label: 'System default' },
+    ...inputs.filter((d) => d.deviceId !== 'default').map((d, i) => ({ value: d.deviceId, label: d.label || `Device ${i + 1}` })),
+  ];
   return (
-    <div className="grid gap-6">
-      <p className="text-muted">Put your cursor in any text field, press the shortcut, speak, then press it again.</p>
-      <div className="flex items-center gap-4 text-lg">
-        <Kbd keys={formatAccelerator(settings.dictation.shortcut, status.platform)} />
-        <span className="text-sm text-muted">start and stop dictation</span>
+    <div className="grid gap-5">
+      <div className="flex items-start justify-between gap-4">
+        <p className="m-0 text-muted">
+          Transcribe what this computer plays, like a meeting or a video. Audio stays here and is never saved. Pick how it
+          should work; you can change it any time.
+        </p>
+        <Badge tone={support.available ? 'success' : 'warning'} className="shrink-0">
+          {support.available ? (support.mode === 'system-picker' ? 'Asks for a screen each time' : 'System audio supported') : 'Audio device only'}
+        </Badge>
       </div>
-      <div className="flex items-center gap-4 text-lg">
-        <Kbd keys={formatAccelerator(settings.tts.shortcut, status.platform)} />
-        <span className="text-sm text-muted">read the selected text aloud</span>
+      {!support.available && <Notice tone="warning">{support.reason} You can still record an audio device, such as a virtual cable.</Notice>}
+      <div className="grid gap-2">
+        <p className="m-0 text-sm font-medium">Record</p>
+        <RadioGroup<LiveSource>
+          label="What a live transcript records"
+          value={live.source}
+          onValueChange={(source) => update.mutate({ live: { source } })}
+          options={[
+            { value: 'system', label: 'System audio', description: 'Everything playing through your speakers or headset.' },
+            { value: 'system+mic', label: 'System audio and microphone', description: 'Adds your voice, for calls you take part in.' },
+            { value: 'device', label: 'Audio device', description: 'One input you choose, such as a virtual cable.' },
+          ]}
+        />
       </div>
-      {!status.insertion.available && <Notice tone="neutral">{status.insertion.reason}</Notice>}
-      {status.accessibilityTrusted === false && (
-        <Notice tone="warning">
-          macOS will ask to allow Inaudio under Privacy &amp; Security → Accessibility the first time it types for you.
-        </Notice>
-      )}
+      <div className="divide-y divide-line border-t border-line">
+        {live.source === 'device' && (
+          <Row label="Audio device">
+            <Select
+              label="Audio device"
+              className="w-64"
+              value={live.deviceId}
+              onValueChange={(deviceId) => update.mutate({ live: { deviceId } })}
+              options={devices}
+            />
+          </Row>
+        )}
+        <Row label="Show the live window when a session starts" description="A small floating window with the transcript as it is heard.">
+          <Switch
+            aria-label="Show the live window when a session starts"
+            checked={liveWindow.openOnStart}
+            onCheckedChange={(openOnStart) => update.mutate({ liveWindow: { openOnStart } })}
+          />
+        </Row>
+        <Row label="Skip stretches without speech" description="Music and silence are not turned into stray words.">
+          <Switch
+            aria-label="Skip stretches without speech"
+            checked={live.skipNonSpeech}
+            onCheckedChange={(skipNonSpeech) => update.mutate({ live: { skipNonSpeech } })}
+          />
+        </Row>
+        <Row label="Save live transcripts to History" description="One entry per session, on this computer only.">
+          <Switch
+            aria-label="Save live transcripts to History"
+            checked={live.saveHistory}
+            onCheckedChange={(saveHistory) => update.mutate({ live: { saveHistory } })}
+          />
+        </Row>
+        <Row label="Start or stop from any app" description="Optional. Off until you set it.">
+          <ShortcutInput
+            label="Live transcript shortcut"
+            optional
+            value={live.shortcut}
+            platform={status.platform}
+            status={status.shortcuts.live}
+            onChange={(shortcut) => update.mutate({ live: { shortcut } })}
+          />
+        </Row>
+      </div>
+      <Notice tone="neutral">Recording other people may need their consent where you live.</Notice>
     </div>
   );
 }
@@ -164,7 +234,7 @@ export function SetupFlow() {
               <h1 className="text-2xl font-semibold tracking-tight">{STEPS[step]}</h1>
               {step === 1 && <MicrophoneStep />}
               {step === 2 && <ModelsStep />}
-              {step === 3 && <ShortcutStep />}
+              {step === 3 && <LiveStep />}
               {step === OVERLAY_STEP && <OverlayStep />}
             </div>
           )}

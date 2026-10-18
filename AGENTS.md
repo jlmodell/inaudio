@@ -25,7 +25,11 @@
 - Microphone `media` permission requests are granted to the `main` surface only.
 - No `Co-Authored-By` trailers in commits or PRs.
 
+## Settings
+- Settings is a route with its own sidebar (`SettingsSidebar`, swapped in by `AppShell`): "Back to Inaudio" returns to `useUi().previousRoute`. Categories and the search index live in `features/settings/settings-nav.ts`; `openSettings(category, focusId)` opens a page and scrolls to a setting. Each section in `settings-page.tsx` renders only on its category.
+
 ## Updates
+- Update progress is pushed (`EVENTS.updateState` → query `['update']`). Release notes are converted from HTML to plain text in main (`src/shared/update/notes.ts`); never render release HTML. The title bar `UpdateIndicator` and the Updates hero card show only while `updates.checkAutomatically` is on.
 - `electron-updater` reads `resources/app-update.yml` for feed, cache dir, and signature config; Forge ships it via `extraResource` in `forge.config.ts` from `assets/app-update.yml`. `scripts/build-release.mjs` fails the release if the electron-builder output lacks an update manifest. Keep `assets/app-update.yml` in sync with the GitHub `shikki841/inaudio` feed if the repo moves.
 
 ## Performance rules

@@ -488,3 +488,81 @@
     animation-name: backdrop-out;
   }
 }
+
+/*
+ * Update motion. The arrow nudges down and a sheen runs along the bar while a download is in
+ * flight; a ready update breathes a soft ring. All of it stops when animations are off.
+ */
+@keyframes update-nudge {
+  0%,
+  100% {
+    transform: translateY(-1px);
+  }
+  50% {
+    transform: translateY(1.5px);
+  }
+}
+@keyframes update-sheen {
+  from {
+    left: -40px;
+  }
+  to {
+    left: 100%;
+  }
+}
+@keyframes update-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+}
+@keyframes settings-flash {
+  0%,
+  60% {
+    background-color: var(--accent-soft);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.update-nudge {
+  animation: update-nudge 1.1s ease-in-out infinite;
+}
+.update-sheen {
+  animation: update-sheen 1.6s ease-in-out infinite;
+}
+.update-pulse {
+  animation: update-pulse 2.4s ease-in-out infinite;
+}
+.update-ring,
+.update-fill {
+  transition: stroke-dashoffset 400ms ease-out, width 400ms ease-out;
+}
+.settings-flash {
+  border-radius: 6px;
+  animation: settings-flash 1.4s ease-out;
+}
+:root[data-motion='reduced'] .update-nudge,
+:root[data-motion='reduced'] .update-sheen {
+  animation: none;
+}
+:root[data-motion='off'] .update-nudge,
+:root[data-motion='off'] .update-sheen,
+:root[data-motion='off'] .update-pulse,
+:root[data-motion='off'] .settings-flash {
+  animation: none;
+}
+:root[data-motion='off'] .update-ring,
+:root[data-motion='off'] .update-fill {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-nudge,
+  .update-sheen,
+  .update-pulse {
+    animation: none;
+  }
+}
