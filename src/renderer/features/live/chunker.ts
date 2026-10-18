@@ -23,6 +23,25 @@ export interface ChunkerOptions {
   windowMs: number;
   /** RMS below this counts as quiet. */
   quietRms: number;
+  /**
+   * After a hard cut, this much audio before the cut is repeated at the start of the next
+   * chunk, so a word split by the cut is heard whole once. The repeated words are removed
+   * from the text again when the two passages are joined.
+   */
+  overlapMs: number;
+}
+
+/** How a chunk ended: at a pause, at the hard limit mid-speech, or when capture stopped. */
+export type ChunkCut = 'pause' | 'limit' | 'end';
+
+/** One chunk and what the joiner needs to know about its edges. */
+export interface ChunkAudio {
+  samples: Float32Array;
+  cut: ChunkCut;
+  /** Quiet between the end of the previous chunk's speech and this chunk, in ms. */
+  pauseBeforeMs: number;
+  /** Audio at the start that repeats the end of the previous chunk, in ms. */
+  overlapMs: number;
 }
 
 export const DEFAULT_CHUNKER: ChunkerOptions = {
@@ -33,6 +52,7 @@ export const DEFAULT_CHUNKER: ChunkerOptions = {
   searchMs: 3_000,
   windowMs: 100,
   quietRms: 0.01,
+  overlapMs: 1_500,
 };
 
 export function rms(samples: Float32Array, start = 0, end = samples.length): number {
@@ -53,18 +73,25 @@ export class Chunker {
   private quiet = 0;
   /** Anything in the buffer rose above the quiet threshold. */
   private voiced = false;
+  /** Quiet since the previous chunk's speech ended, in samples: its tail plus dropped silence. */
+  private gap = 0;
+  /** Samples at the start of the buffer repeated from the previous chunk. */
+  private overlap = 0;
+  /** The hard limit, in samples. The buffer is larger by the overlap it may start with. */
+  private readonly limit: number;
 
   constructor(options: Partial<ChunkerOptions> = {}) {
     this.options = { ...DEFAULT_CHUNKER, ...options };
-    this.buffer = new Float32Array(this.samples(this.options.maxMs));
+    this.limit = this.samples(this.options.maxMs);
+    this.buffer = new Float32Array(this.limit + this.samples(this.options.overlapMs));
   }
 
   /** Adds one block of audio; returns every chunk it completed, usually none. */
-  push(block: Float32Array): Float32Array[] {
-    const out: Float32Array[] = [];
+  push(block: Float32Array): ChunkAudio[] {
+    const out: ChunkAudio[] = [];
     let offset = 0;
     while (offset < block.length) {
-      const take = Math.min(block.length - offset, this.buffer.length - this.length);
+      const take = Math.min(block.length - offset, Math.max(1, this.limit + this.overlap - this.length));
       const part = block.subarray(offset, offset + take);
       this.buffer.set(part, this.length);
       this.length += take;
@@ -83,9 +110,11 @@ export class Chunker {
   }
 
   /** Returns whatever is left, or null when it holds nothing worth transcribing. */
-  flush(): Float32Array | null {
-    const chunk = this.voiced && this.length > 0 ? this.buffer.slice(0, this.length) : null;
+  flush(): ChunkAudio | null {
+    const chunk = this.voiced && this.length > 0 ? this.emit(this.length, 'end') : null;
     this.clear();
+    this.gap = 0;
+    this.overlap = 0;
     return chunk;
   }
 
@@ -94,8 +123,9 @@ export class Chunker {
    * than `minMs` or holds only quiet. The buffer itself is left untouched.
    */
   peek(minMs = 1_000): Float32Array | null {
-    if (!this.voiced || this.length < this.samples(minMs)) return null;
-    return this.buffer.slice(0, this.length);
+    if (!this.voiced || this.length - this.overlap < this.samples(minMs)) return null;
+    // The repeated start is already in the previous chunk's text.
+    return this.buffer.slice(this.overlap, this.length);
   }
 
   /** Audio held but not yet emitted, in ms. */
@@ -103,33 +133,52 @@ export class Chunker {
     return (this.length / this.options.sampleRate) * 1000;
   }
 
-  private cut(): Float32Array | null {
+  private cut(): ChunkAudio | null {
     const { silenceMs, minMs } = this.options;
     const quietEnough = this.quiet >= this.samples(silenceMs);
     if (!this.voiced) {
       // Pure silence is never kept, so a quiet hour holds no memory and costs no inference.
-      if (quietEnough) this.clear();
+      if (quietEnough) {
+        this.gap += this.length;
+        this.overlap = 0;
+        this.clear();
+      }
       return null;
     }
-    if (quietEnough && this.length >= this.samples(minMs)) {
-      const chunk = this.buffer.slice(0, this.length);
+    if (quietEnough && this.length >= this.samples(minMs) + this.overlap) {
+      const tail = this.quiet;
+      const chunk = this.emit(this.length, 'pause');
       this.clear();
+      this.gap = tail;
+      this.overlap = 0;
       return chunk;
     }
-    if (this.length >= this.buffer.length) {
+    if (this.length >= this.limit + this.overlap) {
       const at = this.quietestPoint();
-      const chunk = this.buffer.slice(0, at);
+      const chunk = this.emit(at, 'limit');
       this.reset(at);
+      this.gap = 0;
       return chunk;
     }
     return null;
+  }
+
+  private emit(end: number, cut: ChunkCut): ChunkAudio {
+    const rate = this.options.sampleRate;
+    return {
+      samples: this.buffer.slice(0, end),
+      cut,
+      pauseBeforeMs: Math.round((this.gap / rate) * 1000),
+      overlapMs: Math.round((this.overlap / rate) * 1000),
+    };
   }
 
   /** Middle of the quietest window in the trailing search range. */
   private quietestPoint(): number {
     const { searchMs, windowMs } = this.options;
     const win = Math.max(1, this.samples(windowMs));
-    const from = Math.max(0, this.length - this.samples(searchMs));
+    // Never at or before the repeated start: the cut must move forward.
+    const from = Math.max(this.overlap + 1, this.length - this.samples(searchMs));
     let best = this.length;
     let bestRms = Infinity;
     for (let start = from; start + win <= this.length; start += Math.max(1, win >> 1)) {
@@ -148,13 +197,19 @@ export class Chunker {
     this.voiced = false;
   }
 
-  /** Keeps the audio after `from` as the start of the next chunk. */
+  /**
+   * Keeps the audio after `from` as the start of the next chunk, preceded by up to
+   * `overlapMs` of the audio just before the cut so the word it split is heard whole.
+   */
   private reset(from: number): void {
-    const rest = this.buffer.slice(from, this.length);
+    const start = Math.max(0, from - this.samples(this.options.overlapMs));
+    const rest = this.buffer.slice(start, this.length);
     this.buffer.set(rest, 0);
     this.length = rest.length;
-    this.voiced = rms(rest) >= this.options.quietRms;
-    this.quiet = this.voiced ? 0 : rest.length;
+    this.overlap = from - start;
+    const fresh = rest.subarray(this.overlap);
+    this.voiced = rms(fresh) >= this.options.quietRms;
+    this.quiet = this.voiced ? 0 : fresh.length;
   }
 
   private samples(ms: number): number {

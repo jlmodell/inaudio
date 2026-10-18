@@ -85,3 +85,19 @@ test('a version 1 database upgrades straight to the latest version', () => {
   assert.equal(db.prepare('SELECT source FROM transcripts WHERE id = ?').get('a').source, 'microphone');
   assert.deepEqual(search(db, 'dictation'), ['a']);
 });
+
+test('version 4 adds an empty title and unpinned state to every row, with limits', () => {
+  const db = new DatabaseSync(':memory:');
+  migrate(db, 3);
+  db.prepare(
+    `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at, source)
+     VALUES ('a', 'kept text', 'parakeet-tdt-0.6b-v2-int8', 1, 1, 'en', 1, 'device')`,
+  ).run();
+  migrate(db, 4);
+  const row = db.prepare('SELECT title, pinned, source FROM transcripts WHERE id = ?').get('a');
+  assert.deepEqual({ ...row }, { title: '', pinned: 0, source: 'device' });
+  db.prepare('UPDATE transcripts SET title = ?, pinned = 1 WHERE id = ?').run('Renamed', 'a');
+  assert.throws(() => db.prepare('UPDATE transcripts SET title = ? WHERE id = ?').run('x'.repeat(121), 'a'));
+  assert.throws(() => db.prepare('UPDATE transcripts SET pinned = 2 WHERE id = ?').run('a'));
+  assert.deepEqual(search(db, 'kept'), ['a']);
+});

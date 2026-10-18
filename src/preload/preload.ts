@@ -19,6 +19,7 @@ const api: InaudioApi = {
     revealModels: () => ipcRenderer.invoke(IPC.systemRevealModels),
     window: (action) => ipcRenderer.invoke(IPC.systemWindow, action),
     menu: (command) => ipcRenderer.invoke(IPC.systemMenu, command),
+    openSoundSettings: () => ipcRenderer.invoke(IPC.systemOpenSoundSettings),
   },
   updates: {
     status: () => ipcRenderer.invoke(IPC.updateStatus),
@@ -61,11 +62,13 @@ const api: InaudioApi = {
   },
   liveWindow: {
     act: (action) => ipcRenderer.invoke(IPC.liveWindowAction, action),
+    resize: (phase, edge, x, y) => ipcRenderer.send(IPC.liveWindowResize, { phase, edge, x: Math.round(x), y: Math.round(y) }),
   },
   overlay: {
     act: (action) => ipcRenderer.invoke(IPC.overlayAction, action),
     hover: (hovering) => ipcRenderer.send(IPC.overlayHover, hovering),
     menu: (open) => ipcRenderer.send(IPC.overlayMenu, open),
+    drag: (phase, x, y) => ipcRenderer.send(IPC.overlayDrag, { phase, x: Math.round(x), y: Math.round(y) }),
   },
   text: {
     insert: (text) => ipcRenderer.invoke(IPC.textInsert, text),
@@ -84,6 +87,8 @@ const api: InaudioApi = {
     list: (query) => ipcRenderer.invoke(IPC.historyList, query),
     remove: (id) => ipcRenderer.invoke(IPC.historyRemove, id),
     clear: () => ipcRenderer.invoke(IPC.historyClear),
+    update: (id, patch) => ipcRenderer.invoke(IPC.historyUpdate, { id, patch }),
+    export: (input) => ipcRenderer.invoke(IPC.historyExport, input),
   },
   companions: {
     get: () => ipcRenderer.invoke(IPC.companionGet),
@@ -108,6 +113,7 @@ const api: InaudioApi = {
     onLiveCommand: (listener) => subscribe(EVENTS.liveCommand, listener),
     onLiveWindowState: (listener) => subscribe(EVENTS.liveWindowState, listener),
     onLiveWindowLevel: (listener) => subscribe(EVENTS.liveWindowLevel, listener),
+    onHistoryChanged: (listener) => subscribe(EVENTS.historyChanged, listener),
   },
 };
 

@@ -23,7 +23,7 @@ function feed(chunker, ...parts) {
   return out;
 }
 
-const ms = (samples) => Math.round((samples.length / RATE) * 1000);
+const ms = (chunk) => Math.round(((chunk.samples ?? chunk).length / RATE) * 1000);
 
 test('a pause after enough speech ends a chunk', () => {
   const chunks = feed(new Chunker(), tone(7_000), silence(800));
@@ -45,14 +45,33 @@ test('continuous speech is cut before the hard limit, at the quietest point near
   assert.equal(chunks.length, 1);
   const length = ms(chunks[0]);
   assert.ok(length > 23_400 && length < 23_700, `cut at ${length} ms`);
+  assert.equal(chunks[0].cut, 'limit');
   const rest = chunker.flush();
   assert.ok(rest && ms(rest) > 4_000);
+  // The next chunk repeats the audio just before the cut, and says so.
+  assert.ok(rest.overlapMs >= 1_400 && rest.overlapMs <= 1_500, `overlap ${rest.overlapMs}`);
+  assert.equal(rest.cut, 'end');
 });
 
-test('no chunk is ever longer than the hard limit', () => {
+test('no chunk is ever longer than the hard limit plus its repeated start', () => {
   const chunks = feed(new Chunker(), tone(80_000));
   assert.ok(chunks.length >= 3);
-  for (const chunk of chunks) assert.ok(ms(chunk) <= 25_000);
+  for (const chunk of chunks) assert.ok(ms(chunk) - chunk.overlapMs <= 25_000);
+  // Each cut moves forward: no chunk is only its repeated start.
+  for (const chunk of chunks) assert.ok(ms(chunk) > chunk.overlapMs + 20_000);
+});
+
+test('a pause-ended chunk reports the pause before the next one', () => {
+  const chunker = new Chunker();
+  const first = feed(chunker, tone(7_000), silence(800));
+  assert.equal(first.length, 1);
+  assert.equal(first[0].cut, 'pause');
+  assert.equal(first[0].pauseBeforeMs, 0);
+  // Two more seconds of silence are dropped, then speech resumes.
+  const second = feed(chunker, silence(2_000), tone(7_000), silence(800));
+  assert.equal(second.length, 1);
+  assert.ok(second[0].pauseBeforeMs >= 2_600, `pause ${second[0].pauseBeforeMs}`);
+  assert.equal(second[0].overlapMs, 0);
 });
 
 test('silence is dropped instead of being transcribed', () => {

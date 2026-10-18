@@ -14,6 +14,7 @@ import { LiveWindowSettings } from './live-window-settings';
 import { OverlaySettings } from './overlay-settings';
 import { ReadAloudSettings } from './read-aloud-settings';
 import { ShortcutInput } from './shortcut-input';
+import { TranscriptQualitySettings } from './transcript-quality-settings';
 import { TraySettings } from './tray-settings';
 
 const THREADS = [1, 2, 4, 6, 8, 12, 16];
@@ -36,6 +37,10 @@ const SEARCH_ITEMS = [
   { id: 'settings-accent', label: 'Accent color', section: 'Appearance', keywords: 'blue violet green amber rose color' },
   { id: 'settings-dictation', label: 'Dictation', section: 'Dictation', keywords: 'recording transcript clipboard history' },
   { id: 'settings-cues', label: 'Sound cues', section: 'Dictation', keywords: 'audio tones volume start stop error' },
+  { id: 'settings-quality', label: 'Transcript quality', section: 'Transcript quality', keywords: 'accuracy punctuation sentences paragraphs words' },
+  { id: 'settings-smart-join', label: 'Join live passages into sentences', section: 'Transcript quality', keywords: 'full stop period repeated words paragraph pause' },
+  { id: 'settings-restore-punctuation', label: 'Restore punctuation and capitals', section: 'Transcript quality', keywords: 'commas question marks capital letters model' },
+  { id: 'settings-custom-words', label: 'Custom words', section: 'Transcript quality', keywords: 'vocabulary names terms replace correct spelling' },
   { id: 'settings-read-aloud', label: 'Read Aloud', section: 'Read Aloud', keywords: 'speech voice speak tts kokoro selection' },
   { id: 'settings-read-aloud-voice', label: 'Voice and speed', section: 'Read Aloud', keywords: 'speaker voice speed rate volume loudness' },
   { id: 'settings-read-aloud-capture', label: 'Read the selection directly', section: 'Read Aloud', keywords: 'accessibility ui automation selected text copy clipboard restore' },
@@ -212,6 +217,21 @@ export function SettingsPage() {
         className="order-3"
       >
         <ReadAloudSettings tts={settings.tts} status={status} onChange={(patch) => update.mutate({ tts: patch })} />
+      </Section>
+
+      <Section
+        id="settings-quality"
+        title="Transcript quality"
+        description="How finished text is cleaned up. Everything runs on this computer."
+        className="order-2"
+      >
+        <TranscriptQualitySettings
+          live={settings.live}
+          stt={settings.stt}
+          models={status.cleanupModels}
+          onLive={(patch) => update.mutate({ live: patch })}
+          onStt={(patch) => update.mutate({ stt: patch })}
+        />
       </Section>
 
       <Section id="settings-overlay" title="Recording overlay" description="The floating pill that shows what dictation is doing." className="order-3">

@@ -1,16 +1,15 @@
-import { BrowserWindow, nativeTheme } from 'electron';
+import { BrowserWindow } from 'electron';
 import path from 'node:path';
 import { LIVE_WINDOW_SIZE, type Settings } from '@shared/domain/settings';
 import { overlaySupport } from '../app/platform';
 import { APP_ORIGIN } from '../security/app-protocol';
 
-// Matches --surface in src/renderer/styles/index.css, so the window never flashes another colour.
-const SURFACE = { light: '#FFFFFF', dark: '#131316' };
-
 /**
- * The floating live window: a small solid panel that shows a live transcript over other
- * apps. It is focusable so it can be dragged, scrolled and used from the keyboard, but it is
- * always shown inactive so it never takes focus from what the user is doing.
+ * The floating live window: a small panel with 6px corners that shows a live transcript over
+ * other apps. The window is transparent so the corners are the same on every platform; a
+ * transparent window cannot be resized natively, so its edges resize it through the main
+ * process instead. It is focusable so it can be dragged, scrolled and used from the
+ * keyboard, but it is always shown inactive so it never takes focus.
  */
 export function createLiveWindow(settings: Settings['liveWindow']): BrowserWindow {
   const support = overlaySupport();
@@ -25,15 +24,19 @@ export function createLiveWindow(settings: Settings['liveWindow']): BrowserWindo
     frame: false,
     // On macOS a panel floats over other apps without activating Inaudio.
     ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
-    backgroundColor: nativeTheme.shouldUseDarkColors ? SURFACE.dark : SURFACE.light,
-    resizable: true,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    // Native resizing breaks transparent windows; the page's edges resize it instead.
+    resizable: false,
     movable: true,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: support.alwaysOnTop && settings.alwaysOnTop,
-    roundedCorners: true,
+    // The page draws the 6px corners; a native rounding would clip its shadow.
+    roundedCorners: false,
     title: 'Inaudio live transcript',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

@@ -124,15 +124,24 @@ export type LiveReport =
   | { type: 'ended'; sessionId: string; reason: 'stopped' | 'track-ended' }
   | { type: 'error'; sessionId: string; message: string };
 
+/** How a chunk's audio ended, which decides how its text joins the next. */
+export const CHUNK_CUTS = ['pause', 'limit', 'end'] as const;
+export type ChunkCutKind = (typeof CHUNK_CUTS)[number];
+
 export interface LiveChunk {
   sessionId: string;
   /** Increments by one per chunk; the main process refuses repeats. */
   seq: number;
   samples: Float32Array;
+  cut: ChunkCutKind;
+  /** Quiet before this chunk's speech, in ms. */
+  pauseBeforeMs: number;
+  /** Audio at its start repeated from the previous chunk, in ms. */
+  overlapMs: number;
 }
 
 /** The unfinished stretch, sent for the provisional line. Never stored or saved. */
-export type LivePreview = LiveChunk;
+export type LivePreview = Pick<LiveChunk, 'sessionId' | 'seq' | 'samples'>;
 
 export interface LiveStartInput {
   source: LiveSource;

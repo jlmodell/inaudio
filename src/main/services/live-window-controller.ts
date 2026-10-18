@@ -12,7 +12,13 @@ import { EVENTS } from '@shared/ipc/channels';
 import { isWayland, overlaySupport } from '../app/platform';
 import { registerSurface } from '../security/surfaces';
 import { createLiveWindow } from '../windows/live-window';
-import { LIVE_WINDOW_COLLAPSED_HEIGHT, keepInside, liveWindowBounds } from '../windows/live-window-size';
+import {
+  LIVE_WINDOW_COLLAPSED_HEIGHT,
+  keepInside,
+  liveWindowBounds,
+  resizedBounds,
+  type ResizeEdge,
+} from '../windows/live-window-size';
 
 interface LiveWindowOptions {
   settings(): Settings;
@@ -53,6 +59,8 @@ export class LiveWindowController {
   /** setBounds is running, so the move and resize it causes are not the user's. */
   private placing = false;
   private sizeTimer: NodeJS.Timeout | null = null;
+  /** An edge is being dragged: the bounds and pointer it started from. */
+  private resizing: { bounds: Rectangle; x: number; y: number; edge: ResizeEdge } | null = null;
   private disposed = false;
   private readonly onDisplayChange = () => this.place();
 
@@ -120,13 +128,41 @@ export class LiveWindowController {
     if (this.loaded && win && !win.isDestroyed()) win.webContents.send(EVENTS.liveWindowLevel, level);
   }
 
+  /**
+   * An edge or corner of the transparent window is being dragged. The page reports pointer
+   * positions; the size limits and the work area are enforced here.
+   */
+  resizeTo(phase: 'start' | 'move' | 'end', edge: ResizeEdge, x: number, y: number): void {
+    const win = this.win;
+    if (!win || win.isDestroyed() || this.collapsed) return;
+    if (phase === 'start') {
+      this.resizing = { bounds: win.getBounds(), x, y, edge };
+      return;
+    }
+    const resizing = this.resizing;
+    if (!resizing) return;
+    const area = screen.getDisplayMatching(resizing.bounds).workArea;
+    const next = resizedBounds(resizing.bounds, resizing.edge, x - resizing.x, y - resizing.y, LIVE_WINDOW_SIZE, area);
+    this.placing = true;
+    try {
+      win.setBounds(next);
+    } finally {
+      this.placing = false;
+    }
+    // A resized window keeps where it now is until it is closed, like a dragged one.
+    this.dragged = next;
+    if (phase === 'end') {
+      this.resizing = null;
+      this.sizeChanged(win);
+    }
+  }
+
   setCollapsed(collapsed: boolean): void {
     if (this.collapsed === collapsed || !this.visible()) return;
     this.collapsed = collapsed;
     const win = this.win;
     if (!win || win.isDestroyed()) return;
     const { liveWindow } = this.options.settings();
-    win.setResizable(!collapsed);
     win.setMinimumSize(LIVE_WINDOW_SIZE.minWidth, collapsed ? LIVE_WINDOW_COLLAPSED_HEIGHT : LIVE_WINDOW_SIZE.minHeight);
     if (this.dragged) {
       // A dragged window keeps its top edge and changes height in place.
@@ -171,9 +207,7 @@ export class LiveWindowController {
     win.on('moved', () => {
       if (!this.placing && win === this.win) this.dragged = win.getBounds();
     });
-    win.on('resized', () => this.sizeChanged(win));
-    // Linux reports only `resize`; it fires during the drag, so the save is debounced.
-    if (process.platform === 'linux') win.on('resize', () => this.sizeChanged(win));
+
     win.on('closed', () => {
       if (this.win !== win) return;
       this.win = null;
@@ -185,7 +219,7 @@ export class LiveWindowController {
   }
 
   private sizeChanged(win: BrowserWindow): void {
-    if (this.placing || this.collapsed || win !== this.win) return;
+    if (this.collapsed || win !== this.win) return;
     if (this.dragged) this.dragged = win.getBounds();
     if (this.sizeTimer) clearTimeout(this.sizeTimer);
     this.sizeTimer = setTimeout(() => {

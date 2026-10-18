@@ -49,6 +49,7 @@ export interface OverlaySupport {
 export interface CleanupModelsStatus {
   vad: 'verified' | 'missing' | 'unchecked';
   denoiser: 'verified' | 'missing' | 'unchecked';
+  punct: 'verified' | 'missing' | 'unchecked';
 }
 
 export interface SystemStatus {
@@ -140,6 +141,8 @@ export interface OverlayState extends DictationState {
   showLevel: boolean;
   showModel: boolean;
   showLanguage: boolean;
+  /** Live sessions show their latest words at rest. */
+  showCaption: boolean;
   /** The devices the capturing window last enumerated; the overlay picks from these only. */
   devices: AudioDevice[];
   /** Installed recognition models. Selecting one is validated against this same list. */
@@ -163,6 +166,10 @@ export interface OverlayLive {
   level: number;
   /** The floating live window is showing, so its button is drawn pressed. */
   windowOpen: boolean;
+  /** The latest words heard, or empty. Shown at rest when the caption is on. */
+  caption: string;
+  /** The caption is the provisional guess, drawn grey. */
+  provisional: boolean;
 }
 
 /**
@@ -243,7 +250,10 @@ export type OverlayAction =
         | 'read-stop'
         | 'live-stop'
         | 'live-cancel'
-        | 'live-window';
+        | 'live-window'
+        | 'open-latest'
+        | 'open-history'
+        | 'reset-position';
     }
   | { type: 'select-microphone'; id: string }
   | { type: 'select-model'; id: string };
@@ -282,4 +292,6 @@ export type AppCommand =
   | 'navigate:read-aloud'
   | 'navigate:models'
   | 'navigate:audio'
-  | 'navigate:settings';
+  | 'navigate:settings'
+  /** Opens History with the newest transcript in the drawer. */
+  | 'history:open-latest';

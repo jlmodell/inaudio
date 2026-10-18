@@ -46,6 +46,9 @@ function useMainEvents() {
             return void dictation.stop();
           case 'dictation:cancel':
             return void dictation.cancel();
+          case 'history:open-latest':
+            navigate('history');
+            return useUi.getState().openTranscript('latest');
           default:
             if (command.startsWith('navigate:')) navigate(command.slice('navigate:'.length) as Route);
         }
@@ -58,7 +61,8 @@ function useMainEvents() {
         client.setQueryData(keys.settings, settings);
         void client.invalidateQueries({ queryKey: keys.models });
       }),
-      api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })), 
+      api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })),
+      api.events.onHistoryChanged(() => void client.invalidateQueries({ queryKey: keys.historyAll })),
       connectReadAloud(),
       connectLive(),
     ];

@@ -104,10 +104,10 @@ async function begin(command: Extract<LiveCommand, { type: 'start' }>): Promise<
       systemGain: command.systemGain,
       mic: command.mic,
       onLevel: (level) => useLive.setState({ level }),
-      onChunk: (samples) => {
+      onChunk: ({ samples, cut, pauseBeforeMs, overlapMs }) => {
         if (current !== sessionId) return;
         // Failures are reported by the main process on the session itself.
-        void api.live.chunk({ sessionId, seq: seq++, samples }).catch(() => undefined);
+        void api.live.chunk({ sessionId, seq: seq++, samples, cut, pauseBeforeMs, overlapMs }).catch(() => undefined);
       },
       onTrackEnded: () => void finish(sessionId, 'track-ended'),
     });

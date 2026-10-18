@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { liveSessionMinutesSchema, liveSourceSchema } from './capture';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema } from './models';
+import { MAX_REPLACEMENT_CHARS, MAX_REPLACEMENTS } from '../text/replacements';
 import {
   DEFAULT_COMPANION_SETTINGS,
   companionSettingsPatchSchema,
@@ -133,6 +134,17 @@ export const RESERVED_DEVICE_IDS = ['default', 'communications'] as const;
  * A MediaDeviceInfo.deviceId. Chromium emits a hashed token, so the charset is pinned to
  * what a hash or a base64url id can hold and nothing else ever reaches disk or a menu.
  */
+/** One custom-words fix: what the engine writes, and what it should write instead. */
+export const replacementSchema = z
+  .object({
+    from: z.string().trim().min(1).max(MAX_REPLACEMENT_CHARS),
+    to: z.string().max(MAX_REPLACEMENT_CHARS),
+  })
+  .strict();
+
+/** A fraction of the work area, 0 at the left or top edge and 1 at the right or bottom. */
+const fractionSchema = z.number().min(0).max(1);
+
 export const deviceIdSchema = z
   .string()
   .min(1)
@@ -177,6 +189,8 @@ export const settingsSchema = z.object({
   stt: z.object({
     modelId: sttModelIdSchema,
     threads: z.number().int().min(1).max(16),
+    /** Custom words, applied to dictation and live transcripts. */
+    replacements: z.array(replacementSchema).max(MAX_REPLACEMENTS),
   }),
   tts: z.object({
     modelId: ttsModelIdSchema,
@@ -210,6 +224,14 @@ export const settingsSchema = z.object({
     showModel: z.boolean(),
     showLanguage: z.boolean(),
     toggleShortcut: optionalAcceleratorSchema,
+    /** Show the latest words of a live transcript in the pill. */
+    showCaption: z.boolean(),
+    /**
+     * Where the user dragged the pill, as fractions of the work area (its centre, and the
+     * edge it grows from), or null to use `position`. Pixels are never stored.
+     */
+    customX: fractionSchema.nullable(),
+    customY: fractionSchema.nullable(),
   }),
   tray: z.object({
     enabled: z.boolean(),
@@ -235,6 +257,10 @@ export const settingsSchema = z.object({
     preview: z.boolean(),
     saveHistory: z.boolean(),
     maxMinutes: liveSessionMinutesSchema,
+    /** Join passages into sentences: no false full stops at cuts, no repeated words. */
+    smartJoin: z.boolean(),
+    /** Re-punctuate each passage with the bundled English punctuation model. */
+    restorePunctuation: z.boolean(),
   }),
   liveWindow: z.object({
     openOnStart: z.boolean(),
@@ -313,7 +339,7 @@ export const DEFAULT_SETTINGS: Settings = {
     voiceIsolation: false,
     speechCleanup: false,
   },
-  stt: { modelId: 'parakeet-tdt-0.6b-v2-int8', threads: 4 },
+  stt: { modelId: 'parakeet-tdt-0.6b-v2-int8', threads: 4, replacements: [] },
   tts: {
     modelId: 'kokoro-en-v0_19',
     voiceId: '00',
@@ -341,6 +367,9 @@ export const DEFAULT_SETTINGS: Settings = {
     showModel: false,
     showLanguage: false,
     toggleShortcut: '',
+    showCaption: true,
+    customX: null,
+    customY: null,
   },
   tray: {
     enabled: true,
@@ -361,6 +390,8 @@ export const DEFAULT_SETTINGS: Settings = {
     preview: true,
     saveHistory: true,
     maxMinutes: 180,
+    smartJoin: true,
+    restorePunctuation: false,
   },
   liveWindow: {
     openOnStart: true,

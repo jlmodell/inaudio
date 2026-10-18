@@ -10,6 +10,7 @@ import {
 } from '@shared/domain/models';
 import type { AudioDevice, AppCommand, SystemStatus, WorkerHealth } from '@shared/domain/system';
 import { RESERVED_DEVICE_IDS, type Settings, type SettingsPatch } from '@shared/domain/settings';
+import { EVENTS } from '@shared/ipc/channels';
 import type { SttCleanup } from '@shared/worker/protocol';
 import type { AppPaths } from '../app/paths';
 import { CleanupModels } from '../app/cleanup-models';
@@ -61,6 +62,8 @@ export interface Services {
   window(): BrowserWindow | null;
   /** Opens or brings back the app window and focuses it. */
   showWindow(): void;
+  /** Pushes an event to the app window, if it exists. */
+  send(channel: string, payload: unknown): void;
   status(): SystemStatus;
   runModel<T>(id: ModelId, operation: () => Promise<T>, priority?: number): Promise<T>;
   ensureLoaded(id: ModelId): Promise<void>;
@@ -199,6 +202,7 @@ export function createServices(options: {
     // received, and the recognition models actually on disk.
     devices: () => reportedDevices,
     models: installedSttModels,
+    updateSettings: (patch) => settings.update(patch),
   });
   const dictation = new DictationController({
     settings: () => settings.get(),
@@ -409,7 +413,16 @@ export function createServices(options: {
         ? runModel(id, () => hosts.stt.transcribe(samples, 16_000, sttCleanup('live')), LIVE_PRIORITY)
         : runModel(id, () => hosts.stt.transcribe(samples, 16_000), PREVIEW_PRIORITY),
     dictating: () => overlay.phase() !== 'idle' && overlay.phase() !== 'error',
-    save: (transcript) => history.add(transcript),
+    punctuate: async (text) => {
+      const model = cleanupModels.path('punct');
+      const vocab = cleanupModels.path('punctVocab');
+      if (!model || !vocab || !text) return null;
+      return hosts.stt.punctuate(text, model, vocab);
+    },
+    save: (transcript) => {
+      history.add(transcript);
+      options.send(EVENTS.historyChanged, null);
+    },
     window: options.window,
     ensureWindow: options.ensureWindow,
     showWindow: options.showWindow,
@@ -426,7 +439,7 @@ export function createServices(options: {
 
   return {
     paths, settings, history, models, stt: hosts.stt, tts: hosts.tts, inserter, companion, updater,
-    shortcuts: options.shortcuts, tray: options.tray, window: options.window, showWindow: options.showWindow,
+    shortcuts: options.shortcuts, tray: options.tray, window: options.window, showWindow: options.showWindow, send: options.send,
     overlay, dictation, readAloud, live, liveWindow, sttCleanup, reportDevices, updateSettings: applySettings,
     listDevices: () => reportedDevices,
     installedSttModels,

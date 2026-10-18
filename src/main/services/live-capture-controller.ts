@@ -20,6 +20,8 @@ import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
 import type { Settings } from '@shared/domain/settings';
 import type { OverlayLive } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
+import { forPunctuation, joinPassage, openSentenceStart, type PassageCut, type PassageMeta } from '@shared/live/join';
+import { compileReplacements } from '@shared/text/replacements';
 import type { SttResult } from '@shared/worker/protocol';
 import { armCapture, disarmCapture } from '../security/capture-grant';
 
@@ -36,6 +38,11 @@ interface LiveOptions {
   transcribe(id: ModelId, samples: Float32Array, kind: 'final' | 'preview'): Promise<SttResult>;
   /** Dictation is recording or transcribing, so previews would only slow it down. */
   dictating(): boolean;
+  /**
+   * Re-punctuates lower-case words with the bundled English model, or null when the model
+   * is not available. Runs in the speech worker, never in this process.
+   */
+  punctuate(text: string): Promise<string | null>;
   save(transcript: Transcript): void;
   /** The app window, opened if needed: capture runs in its renderer. */
   window(): BrowserWindow | null;
@@ -60,6 +67,8 @@ interface LiveOptions {
 const START_TIMEOUT_MS = process.platform === 'darwin' ? 90_000 : 20_000;
 /** A track that ends this soon, with nothing transcribed, was blocked rather than stopped. */
 const BLOCKED_WITHIN_MS = 1_500;
+/** Ends with a full stop, question mark or similar, possibly inside closing quotes. */
+const FINISHED = /[.!?…]["'”’)\]]*$/;
 /** Previews never come closer together than this, whatever the window sends. */
 const PREVIEW_MIN_GAP_MS = 1_000;
 
@@ -71,7 +80,16 @@ const PREVIEW_MIN_GAP_MS = 1_000;
  */
 export class LiveCaptureController {
   private state: LiveState = { ...IDLE_LIVE };
-  private texts = new Map<number, string>();
+  /** Transcribed passages waiting for every earlier one, so text is always joined in order. */
+  private results = new Map<number, { text: string; meta: PassageMeta }>();
+  /** Accepted chunk numbers, oldest first, that have not been joined yet. */
+  private order: number[] = [];
+  /** The session's text, joined passage by passage. */
+  private folded = '';
+  private foldedCut: PassageCut | null = null;
+  private folding: Promise<void> = Promise.resolve();
+  /** The custom words list, compiled once per session. */
+  private fix: (text: string) => string = (text) => text;
   private lastSeq = -1;
   private inflight = 0;
   private ended = false;
@@ -137,6 +155,7 @@ export class LiveCaptureController {
     const sessionId = randomUUID();
     this.reset();
     this.modelId = modelId;
+    this.fix = compileReplacements(settings.stt.replacements);
     this.state = { ...IDLE_LIVE, phase: 'starting', sessionId, source, savedId: null };
     this.publish();
     this.options.preload(modelId);
@@ -275,7 +294,7 @@ export class LiveCaptureController {
   }
 
   /** One chunk from the capturing window. Resolves once it is transcribed. */
-  async chunk({ sessionId, seq, samples }: LiveChunk): Promise<void> {
+  async chunk({ sessionId, seq, samples, cut, pauseBeforeMs, overlapMs }: LiveChunk): Promise<void> {
     const { phase } = this.state;
     if (sessionId !== this.state.sessionId || (phase !== 'capturing' && phase !== 'finishing') || this.ended) {
       throw new Error('This live session has ended.');
@@ -284,6 +303,8 @@ export class LiveCaptureController {
     this.lastSeq = seq;
     const modelId = this.modelId;
     if (!modelId) throw new Error('This live session has ended.');
+    this.order.push(seq);
+    const meta: PassageMeta = { cut, pauseBeforeMs, overlapMs };
     const ms = Math.round((samples.length / LIVE_SAMPLE_RATE) * 1000);
     this.inflight++;
     this.setPending(this.state.pendingMs + ms);
@@ -293,8 +314,10 @@ export class LiveCaptureController {
       this.inferenceMs += result.inferenceMs;
       if (result.language) this.language = result.language.slice(0, 16);
       const text = result.text.trim();
-      if (text) this.texts.set(seq, text);
-      const joined = this.joined();
+      this.results.set(seq, { text, meta });
+      await this.fold(sessionId);
+      if (sessionId !== this.state.sessionId) return;
+      const joined = this.folded;
       const full = joined.length >= MAX_SESSION_TRANSCRIPT_CHARS;
       // The finished chunk replaces the provisional line that was guessed from it.
       const settled = seq >= this.state.previewSeq;
@@ -311,8 +334,15 @@ export class LiveCaptureController {
       }
     } catch (error) {
       if (sessionId !== this.state.sessionId) return;
-      // One failed chunk loses that stretch of audio, not the session.
-      this.state = { ...this.state, message: `Part of the audio could not be transcribed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 200) };
+      // One failed chunk loses that stretch of audio, not the session, and never holds up
+      // the passages after it.
+      this.results.set(seq, { text: '', meta });
+      await this.fold(sessionId);
+      this.state = {
+        ...this.state,
+        text: this.folded.slice(0, MAX_SESSION_TRANSCRIPT_CHARS),
+        message: `Part of the audio could not be transcribed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 200),
+      };
     } finally {
       if (sessionId === this.state.sessionId) {
         this.inflight--;
@@ -366,11 +396,42 @@ export class LiveCaptureController {
     this.publish();
   }
 
-  private joined(): string {
-    return [...this.texts.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([, text]) => text)
-      .join('\n\n');
+  /**
+   * Joins every passage whose predecessors are all back, in order, one at a time. Passages
+   * finish in order on the speech queue, but this does not rely on it.
+   */
+  private fold(sessionId: string): Promise<void> {
+    this.folding = this.folding
+      .then(async () => {
+        while (this.order.length && this.results.has(this.order[0] ?? -1)) {
+          if (sessionId !== this.state.sessionId) return;
+          const seq = this.order.shift() as number;
+          const result = this.results.get(seq);
+          this.results.delete(seq);
+          if (result) await this.append(result.text, result.meta);
+        }
+      })
+      .catch(() => undefined);
+    return this.folding;
+  }
+
+  /** Adds one passage: custom words, then the smart join, then punctuation if asked for. */
+  private async append(passage: string, meta: PassageMeta): Promise<void> {
+    if (!passage) return;
+    const { smartJoin, restorePunctuation } = this.options.settings().live;
+    const before = this.folded;
+    let next = joinPassage(before, this.foldedCut, this.fix(passage), meta, smartJoin);
+    if (restorePunctuation && next !== before) {
+      // The unfinished sentence and the new passage are punctuated together, so a sentence
+      // that runs across the cut is punctuated as one.
+      const start = FINISHED.test(before) ? before.length : openSentenceStart(before);
+      const region = next.slice(start);
+      const lead = /^\s*/.exec(region)?.[0] ?? '';
+      const punctuated = await this.options.punctuate(forPunctuation(region)).catch(() => null);
+      if (punctuated) next = `${next.slice(0, start)}${lead}${this.fix(punctuated.trim())}`;
+    }
+    this.folded = next;
+    this.foldedCut = meta.cut;
   }
 
   /** Once the window has stopped and every chunk is back, the session is saved and closed. */
@@ -391,6 +452,8 @@ export class LiveCaptureController {
           language: this.language,
           createdAt: this.state.startedAt || Date.now(),
           source: this.state.source,
+          title: '',
+          pinned: false,
         });
       } catch (error) {
         savedId = null;
@@ -428,7 +491,12 @@ export class LiveCaptureController {
   private reset(): void {
     this.clearTimers();
     disarmCapture();
-    this.texts.clear();
+    this.results.clear();
+    this.order = [];
+    this.folded = '';
+    this.foldedCut = null;
+    this.folding = Promise.resolve();
+    this.fix = (text) => text;
     this.lastSeq = -1;
     this.inflight = 0;
     this.ended = false;
@@ -461,9 +529,20 @@ export class LiveCaptureController {
   }
 
   private publishOverlay(): void {
-    const { phase, source, startedAt } = this.state;
-    this.options.overlay.setLive(
-      phase === 'capturing' ? { source, startedAt, level: this.level, windowOpen: this.options.floating.visible() } : null,
-    );
+    const { phase, source, startedAt, preview, text } = this.state;
+    if (phase !== 'capturing') {
+      this.options.overlay.setLive(null);
+      return;
+    }
+    // The pill has room for one line: the guess being spoken, else the end of the last passage.
+    const latest = preview || text.slice(text.lastIndexOf('\n\n') + 2);
+    this.options.overlay.setLive({
+      source,
+      startedAt,
+      level: this.level,
+      windowOpen: this.options.floating.visible(),
+      caption: latest.slice(-160).trim(),
+      provisional: !!preview,
+    });
   }
 }

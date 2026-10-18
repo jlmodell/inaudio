@@ -35,6 +35,8 @@ export const IPC = {
   overlayAction: 'overlay:action',
   overlayHover: 'overlay:hover',
   overlayMenu: 'overlay:menu',
+  overlayDrag: 'overlay:drag',
+  liveWindowResize: 'live-window:resize',
   textInsert: 'text:insert',
   clipboardWrite: 'clipboard:write',
   ttsSpeak: 'tts:speak',
@@ -45,6 +47,9 @@ export const IPC = {
   historyList: 'history:list',
   historyRemove: 'history:remove',
   historyClear: 'history:clear',
+  historyUpdate: 'history:update',
+  historyExport: 'history:export',
+  systemOpenSoundSettings: 'system:open-sound-settings',
   companionGet: 'companion:get',
   companionSelect: 'companion:select',
   companionVisibility: 'companion:visibility',
@@ -69,6 +74,7 @@ export const EVENTS = {
   liveCommand: 'event:live-command',
   liveWindowState: 'event:live-window-state',
   liveWindowLevel: 'event:live-window-level',
+  historyChanged: 'event:history-changed',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

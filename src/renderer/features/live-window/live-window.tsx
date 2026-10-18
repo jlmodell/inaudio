@@ -12,14 +12,26 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from 'react';
 import type { LiveSource } from '@shared/domain/capture';
 import type { LiveWindowAction, LiveWindowState } from '@shared/domain/system';
 import { Button } from '@renderer/components/ui/button';
 import { Badge, Kbd, Notice } from '@renderer/components/ui/layout';
 import { Segmented } from '@renderer/components/ui/segmented';
 import { LevelBars, Timer } from '@renderer/features/overlay/level-bars';
-import { Chip, Dot, iconButtonClass, recordButtonClass } from '@renderer/features/overlay/pill-parts';
+import {
+  Chip,
+  Dot,
+  iconButtonClass,
+  recordButtonClass,
+} from '@renderer/features/overlay/pill-parts';
 import { api } from '@renderer/lib/api';
 import { cn } from '@renderer/lib/cn';
 import { formatAccelerator, formatDuration } from '@renderer/lib/format';
@@ -30,10 +42,72 @@ const SOURCES: { value: LiveSource; label: string }[] = [
   { value: 'device', label: 'Device' },
 ];
 
-const TEXT_SIZE = { sm: 'text-[13px] leading-normal', md: 'text-[15px] leading-relaxed', lg: 'text-lg leading-normal' };
+const TEXT_SIZE = {
+  sm: 'text-[13px] leading-normal',
+  md: 'text-[15px] leading-relaxed',
+  lg: 'text-lg leading-normal',
+};
 
 /** Further than this from the bottom, new text no longer scrolls the view. */
 const FOLLOW_SLACK_PX = 24;
+
+/** The panel: 6px corners, a hairline and a soft shadow inside the window's 8px margin. */
+const panelClass =
+  'h-full overflow-hidden rounded-[6px] border border-line bg-surface text-ink shadow-[0_4px_14px_rgb(0_0_0/0.16)] dark:shadow-[0_4px_16px_rgb(0_0_0/0.55)]';
+
+type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+const EDGES: { edge: Edge; className: string }[] = [
+  { edge: 'n', className: 'top-0 right-3 left-3 h-2 cursor-ns-resize' },
+  { edge: 's', className: 'right-3 bottom-0 left-3 h-2 cursor-ns-resize' },
+  { edge: 'e', className: 'top-3 right-0 bottom-3 w-2 cursor-ew-resize' },
+  { edge: 'w', className: 'top-3 bottom-3 left-0 w-2 cursor-ew-resize' },
+  { edge: 'nw', className: 'top-0 left-0 size-3 cursor-nwse-resize' },
+  { edge: 'ne', className: 'top-0 right-0 size-3 cursor-nesw-resize' },
+  { edge: 'sw', className: 'bottom-0 left-0 size-3 cursor-nesw-resize' },
+  { edge: 'se', className: 'right-0 bottom-0 size-3 cursor-nwse-resize' },
+];
+
+/**
+ * A transparent window has no native frame, so its margin is the frame: dragging an edge
+ * or corner reports the pointer to the main process, which resizes within the limits.
+ */
+function ResizeEdges() {
+  const frame = useRef(0);
+  const down = (edge: Edge) => (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    api.liveWindow.resize('start', edge, event.screenX, event.screenY);
+  };
+  const move = (edge: Edge) => (event: PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const { screenX, screenY } = event;
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() =>
+      api.liveWindow.resize('move', edge, screenX, screenY),
+    );
+  };
+  const up = (edge: Edge) => (event: PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    cancelAnimationFrame(frame.current);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    api.liveWindow.resize('end', edge, event.screenX, event.screenY);
+  };
+  return (
+    <>
+      {EDGES.map(({ edge, className }) => (
+        <div
+          key={edge}
+          aria-hidden
+          onPointerDown={down(edge)}
+          onPointerMove={move(edge)}
+          onPointerUp={up(edge)}
+          onPointerCancel={up(edge)}
+          className={cn('no-drag absolute z-10', className)}
+        />
+      ))}
+    </>
+  );
+}
 
 function act(action: LiveWindowAction): void {
   void api.liveWindow.act(action).catch(() => undefined);
@@ -95,7 +169,12 @@ function IconAction({
       title={label}
       aria-pressed={pressed}
       onClick={onClick}
-      className={cn('no-drag', iconButtonClass, pressed && 'bg-accent-soft text-accent hover:text-accent', className)}
+      className={cn(
+        'no-drag',
+        iconButtonClass,
+        pressed && 'bg-accent-soft text-accent hover:text-accent',
+        className,
+      )}
     >
       {children}
     </button>
@@ -120,8 +199,13 @@ function Status({ state, level }: { state: LiveWindowState; level: number }) {
   if (live.phase === 'starting' || live.phase === 'finishing') {
     return (
       <>
-        <Loader2 aria-hidden className={cn('size-4 shrink-0 text-accent', animate && 'animate-spin')} />
-        <span className="truncate text-[13px] font-medium">{live.phase === 'starting' ? 'Starting…' : 'Finishing…'}</span>
+        <Loader2
+          aria-hidden
+          className={cn('size-4 shrink-0 text-accent', animate && 'animate-spin')}
+        />
+        <span className="truncate text-[13px] font-medium">
+          {live.phase === 'starting' ? 'Starting…' : 'Finishing…'}
+        </span>
       </>
     );
   }
@@ -176,13 +260,19 @@ function Transcript({ state }: { state: LiveWindowState }) {
         ref={follow.ref}
         onScroll={follow.onScroll}
         data-selectable
-        className={cn('app-scroll-area h-full overflow-y-auto px-4 py-3 break-words', TEXT_SIZE[state.textSize])}
+        className={cn(
+          'app-scroll-area h-full overflow-y-auto px-4 py-3 break-words',
+          TEXT_SIZE[state.textSize],
+        )}
       >
-        {state.truncated && <p className="pb-2 text-xs text-faint">Earlier text is on the Live transcript page.</p>}
+        {state.truncated && (
+          <p className="pb-2 text-xs text-faint">Earlier text is on the Live transcript page.</p>
+        )}
         {live.behind && (
           <div className="pb-3">
             <Notice tone="warning">
-              Transcription is {formatDuration(live.pendingMs)} behind. Nothing is lost; it catches up when the audio gets quieter.
+              Transcription is {formatDuration(live.pendingMs)} behind. Nothing is lost; it catches
+              up when the audio gets quieter.
             </Notice>
           </div>
         )}
@@ -194,11 +284,19 @@ function Transcript({ state }: { state: LiveWindowState }) {
             </p>
           ))}
         </div>
-        {active && live.preview && <p className="m-0 mt-2.5 whitespace-pre-wrap text-faint">{live.preview}</p>}
-        {active && !live.text && !live.preview && (
-          <p className="m-0 text-faint">{live.phase === 'capturing' ? 'Listening. Text appears as it is heard.' : 'Finishing the transcript…'}</p>
+        {active && live.preview && (
+          <p className="m-0 mt-2.5 whitespace-pre-wrap text-faint">{live.preview}</p>
         )}
-        {!active && live.message && live.phase !== 'error' && <p className="m-0 mt-3 text-sm text-muted">{live.message}</p>}
+        {active && !live.text && !live.preview && (
+          <p className="m-0 text-faint">
+            {live.phase === 'capturing'
+              ? 'Listening. Text appears as it is heard.'
+              : 'Finishing the transcript…'}
+          </p>
+        )}
+        {!active && live.message && live.phase !== 'error' && (
+          <p className="m-0 mt-3 text-sm text-muted">{live.message}</p>
+        )}
       </div>
       {!follow.following && (
         <button
@@ -240,7 +338,9 @@ function Ready({ state }: { state: LiveWindowState }) {
 function Starting({ state }: { state: LiveWindowState }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col justify-center gap-1.5 px-4 py-3">
-      <p className="m-0 text-[15px] font-medium">{state.picker ? 'Choose a screen to share its audio.' : 'Starting the live transcript…'}</p>
+      <p className="m-0 text-[15px] font-medium">
+        {state.picker ? 'Choose a screen to share its audio.' : 'Starting the live transcript…'}
+      </p>
       {state.picker && (
         <p className="m-0 text-[13px] leading-normal text-muted">
           macOS asks each time. Only the audio is used; the picture is dropped right away.
@@ -253,7 +353,9 @@ function Starting({ state }: { state: LiveWindowState }) {
 function Failed({ state }: { state: LiveWindowState }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3.5">
-      <Notice tone="danger">{state.live.message || 'The live transcript stopped unexpectedly.'}</Notice>
+      <Notice tone="danger">
+        {state.live.message || 'The live transcript stopped unexpectedly.'}
+      </Notice>
     </div>
   );
 }
@@ -275,11 +377,21 @@ function Footer({ state }: { state: LiveWindowState }) {
   if (live.phase === 'capturing') {
     return (
       <>
-        <Button variant="record" size="sm" className="no-drag h-[30px] px-3 text-[13px]" onClick={() => act('stop')}>
+        <Button
+          variant="record"
+          size="sm"
+          className="no-drag h-[30px] px-3 text-[13px]"
+          onClick={() => act('stop')}
+        >
           <Square aria-hidden className="size-[11px]! fill-current" />
           Stop
         </Button>
-        <Button variant="ghost" size="sm" className="no-drag h-[30px] px-2.5 text-[13px]" onClick={() => act('cancel')}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="no-drag h-[30px] px-2.5 text-[13px]"
+          onClick={() => act('cancel')}
+        >
           Discard
         </Button>
         <span className="flex-1" />
@@ -293,7 +405,12 @@ function Footer({ state }: { state: LiveWindowState }) {
   }
   if (live.phase === 'starting') {
     return (
-      <Button variant="secondary" size="sm" className="no-drag h-[30px] px-3 text-[13px]" onClick={() => act('cancel')}>
+      <Button
+        variant="secondary"
+        size="sm"
+        className="no-drag h-[30px] px-3 text-[13px]"
+        onClick={() => act('cancel')}
+      >
         Cancel
       </Button>
     );
@@ -302,7 +419,9 @@ function Footer({ state }: { state: LiveWindowState }) {
     return (
       <>
         <span className="flex-1 text-xs text-faint">
-          {live.pendingMs > 0 ? `Transcribing the last ${Math.ceil(live.pendingMs / 1000)} s…` : 'Finishing the transcript…'}
+          {live.pendingMs > 0
+            ? `Transcribing the last ${Math.ceil(live.pendingMs / 1000)} s…`
+            : 'Finishing the transcript…'}
         </span>
         {openApp}
       </>
@@ -320,7 +439,8 @@ function Footer({ state }: { state: LiveWindowState }) {
         <MonitorSpeaker aria-hidden className="size-[14px]!" />
         {live.phase === 'error' ? 'Try again' : 'Start'}
       </Button>
-      <div className="no-drag [&_button]:h-[26px] [&_button]:px-2 [&_button]:text-xs">
+      {/* The window is its own viewport: below 400px the source switch gives way to the actions. */}
+      <div className="no-drag shrink-0 whitespace-nowrap max-[400px]:hidden [&_button]:h-[26px] [&_button]:px-2 [&_button]:text-xs">
         <Segmented<LiveSource>
           label="Audio source"
           value={state.nextSource}
@@ -341,24 +461,40 @@ function Collapsed({ state }: { state: LiveWindowState }) {
   const { live } = state;
   const line = live.preview || live.text.slice(live.text.lastIndexOf('\n\n') + 2) || 'Listening…';
   return (
-    <section
-      aria-label="Live transcript, collapsed"
-      className="drag flex h-full items-center gap-2.5 overflow-hidden bg-surface pr-2 pl-3.5"
-    >
-      {live.phase === 'capturing' ? <Dot className="bg-record" pulse={state.animate} /> : <Captions aria-hidden className="size-4 shrink-0 text-muted" />}
-      <Timer startedAt={live.phase === 'capturing' ? live.startedAt : 0} />
-      <span className={cn('min-w-0 flex-1 truncate text-[13px]', live.preview ? 'text-faint' : 'text-ink')} title={line}>
-        {line}
-      </span>
-      {live.phase === 'capturing' && (
-        <IconAction label="Stop live transcript" onClick={() => act('stop')} className={recordButtonClass}>
-          <Square aria-hidden className="size-[11px] fill-current" />
+    <div className="h-full p-2">
+      <section
+        aria-label="Live transcript, collapsed"
+        className={cn(panelClass, 'drag flex items-center gap-2.5 pr-2 pl-3.5')}
+      >
+        {live.phase === 'capturing' ? (
+          <Dot className="bg-record" pulse={state.animate} />
+        ) : (
+          <Captions aria-hidden className="size-4 shrink-0 text-muted" />
+        )}
+        <Timer startedAt={live.phase === 'capturing' ? live.startedAt : 0} />
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate text-[13px]',
+            live.preview ? 'text-faint' : 'text-ink',
+          )}
+          title={line}
+        >
+          {line}
+        </span>
+        {live.phase === 'capturing' && (
+          <IconAction
+            label="Stop live transcript"
+            onClick={() => act('stop')}
+            className={recordButtonClass}
+          >
+            <Square aria-hidden className="size-[11px] fill-current" />
+          </IconAction>
+        )}
+        <IconAction label="Expand" onClick={() => act('expand')}>
+          <ChevronDown aria-hidden className="size-[15px]" />
         </IconAction>
-      )}
-      <IconAction label="Expand" onClick={() => act('expand')}>
-        <ChevronDown aria-hidden className="size-[15px]" />
-      </IconAction>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -385,28 +521,35 @@ export function LiveWindow() {
     );
 
   return (
-    <section aria-label="Live transcript window" className="flex h-full flex-col bg-surface text-ink">
-      <header className="drag flex h-11 shrink-0 items-center gap-2.5 border-b border-line pr-2 pl-3.5">
-        <Status state={state} level={level} />
-        <span className="flex-1" />
-        {state.canPin && (
-          <IconAction label={state.alwaysOnTop ? 'Stop keeping on top' : 'Keep on top'} pressed={state.alwaysOnTop} onClick={() => act('pin')}>
-            <Pin aria-hidden className="size-[15px]" />
+    <div className="relative h-full p-2">
+      <ResizeEdges />
+      <section aria-label="Live transcript window" className={cn(panelClass, 'flex flex-col')}>
+        <header className="drag flex h-11 shrink-0 items-center gap-2.5 border-b border-line pr-2 pl-3.5">
+          <Status state={state} level={level} />
+          <span className="flex-1" />
+          {state.canPin && (
+            <IconAction
+              label={state.alwaysOnTop ? 'Stop keeping on top' : 'Keep on top'}
+              pressed={state.alwaysOnTop}
+              onClick={() => act('pin')}
+            >
+              <Pin aria-hidden className="size-[15px]" />
+            </IconAction>
+          )}
+          {(live.phase === 'capturing' || live.text) && (
+            <IconAction label="Collapse to one line" onClick={() => act('collapse')}>
+              <ChevronUp aria-hidden className="size-[15px]" />
+            </IconAction>
+          )}
+          <IconAction label="Hide window" onClick={() => act('hide')}>
+            <X aria-hidden className="size-[15px]" />
           </IconAction>
-        )}
-        {(live.phase === 'capturing' || live.text) && (
-          <IconAction label="Collapse to one line" onClick={() => act('collapse')}>
-            <ChevronUp aria-hidden className="size-[15px]" />
-          </IconAction>
-        )}
-        <IconAction label="Hide window" onClick={() => act('hide')}>
-          <X aria-hidden className="size-[15px]" />
-        </IconAction>
-      </header>
-      {body}
-      <footer className="flex h-12 shrink-0 items-center gap-2 border-t border-line px-2.5">
-        <Footer state={state} />
-      </footer>
-    </section>
+        </header>
+        {body}
+        <footer className="flex h-12 shrink-0 items-center gap-2 border-t border-line px-2.5">
+          <Footer state={state} />
+        </footer>
+      </section>
+    </div>
   );
 }

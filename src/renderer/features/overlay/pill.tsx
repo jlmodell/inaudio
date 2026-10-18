@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  GripVertical,
   Loader2,
   Mic,
   Pause,
@@ -10,7 +11,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useRef, type PointerEvent, type ReactNode } from 'react';
 import type { OverlayLive, OverlayReading, OverlayState } from '@shared/domain/system';
 import { api } from '@renderer/lib/api';
 import { cn } from '@renderer/lib/cn';
@@ -158,8 +159,74 @@ function ReadingContent({
   );
 }
 
+/**
+ * The handle an armed pill is dragged by. The pointer is reported in screen coordinates and
+ * the main process moves the window, keeps it on a screen and remembers where it was left.
+ */
+function DragHandle() {
+  const frame = useRef(0);
+  const down = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    api.overlay.drag('start', event.screenX, event.screenY);
+  };
+  const move = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const { screenX, screenY } = event;
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => api.overlay.drag('move', screenX, screenY));
+  };
+  const up = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    cancelAnimationFrame(frame.current);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    api.overlay.drag('end', event.screenX, event.screenY);
+  };
+  return (
+    <button
+      type="button"
+      aria-label="Move overlay"
+      title="Drag to move. Reset from the ⋯ menu."
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+      className="-ml-1.5 grid h-7 w-5 shrink-0 cursor-grab touch-none place-items-center rounded-[6px] text-faint outline-none hover:text-muted active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      <GripVertical aria-hidden className="size-[14px]" />
+    </button>
+  );
+}
+
 /** A live transcript recording system audio: always marked, and once armed, stop and discard. */
-function LiveContent({ live, state, armed }: { live: OverlayLive; state: OverlayState; armed: boolean }) {
+function LiveContent({
+  live,
+  state,
+  armed,
+  controls,
+}: {
+  live: OverlayLive;
+  state: OverlayState;
+  armed: boolean;
+  controls: ReactNode;
+}) {
+  // At rest, the latest words take the place of the label and the meter.
+  if (!armed && state.showCaption && live.caption) {
+    return (
+      <>
+        <Dot className="bg-record" pulse={state.animate} />
+        {state.showTimer && <Timer startedAt={live.startedAt} />}
+        <span
+          aria-live="off"
+          title={live.caption}
+          // Right-to-left keeps the newest words visible and lets the start fall off.
+          className={cn('w-[240px] truncate text-left text-[13px] [direction:rtl]', live.provisional ? 'text-faint' : 'text-ink')}
+        >
+          <bdi>{live.caption}</bdi>
+        </span>
+      </>
+    );
+  }
   return (
     <>
       <Dot className="bg-record" pulse={state.animate} />
@@ -196,6 +263,7 @@ function LiveContent({ live, state, armed }: { live: OverlayLive; state: Overlay
           >
             <X aria-hidden className="size-[15px]" />
           </button>
+          {controls}
         </>
       )}
     </>
@@ -243,8 +311,9 @@ export function Pill({ state }: { state: OverlayState }) {
         !armed && !busy && !failed && !reading && !live && 'opacity-[0.92]',
       )}
     >
+      {armed && <DragHandle />}
       {live ? (
-        <LiveContent live={live} state={state} armed={armed} />
+        <LiveContent live={live} state={state} armed={armed} controls={menuButton} />
       ) : reading ? (
         <ReadingContent reading={reading} armed={armed} controls={menuButton} />
       ) : (

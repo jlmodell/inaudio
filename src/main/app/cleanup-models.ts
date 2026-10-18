@@ -5,13 +5,15 @@ import path from 'node:path';
 import type { CleanupModelsStatus } from '@shared/domain/system';
 
 /**
- * The two small models behind speech cleanup. They ship with the app (MIT, from the
+ * The small models behind speech cleanup and punctuation. They ship with the app (MIT, from the
  * sherpa-onnx releases) so cleanup works offline from the first launch, and each is checked
  * against its pinned hash before the worker is given its path.
  */
 const MODELS = {
   vad: { file: 'silero_vad.onnx', bytes: 643_854, sha256: '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6' },
   denoiser: { file: 'gtcrn_simple.onnx', bytes: 535_638, sha256: 'e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534' },
+  punct: { file: 'punct_en.int8.onnx', bytes: 7_490_500, sha256: '9d611f445fe4a46186080fe161be6059d87d72eb88d3a8cb00c1a06e83a6067e' },
+  punctVocab: { file: 'punct_en.bpe.vocab', bytes: 149_430, sha256: 'e118b7ad88c54db562517df49e1cffd4836d166c34fb190fd311d7f34eb238f5' },
 } as const;
 
 type CleanupModel = keyof typeof MODELS;
@@ -72,6 +74,7 @@ export class CleanupModels {
   status(): CleanupModelsStatus {
     const state = (name: CleanupModel) =>
       this.verified[name] ? 'verified' : this.failed[name] ? 'missing' : 'unchecked';
-    return { vad: state('vad'), denoiser: state('denoiser') };
+    const punct = state('punct') === 'verified' && state('punctVocab') === 'verified' ? 'verified' : state('punct') === 'missing' || state('punctVocab') === 'missing' ? 'missing' : 'unchecked';
+    return { vad: state('vad'), denoiser: state('denoiser'), punct };
   }
 }

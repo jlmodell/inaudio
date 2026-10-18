@@ -16,6 +16,7 @@ import type { MicProcessing } from '@shared/domain/capture';
 import { DiagnosticsSection } from './diagnostics-section';
 import { LiveSessionSection } from './live-session-section';
 import { MicProcessingSection } from './mic-processing-section';
+import { OneAppGuide } from './one-app-guide';
 import { SystemAudioSection } from './system-audio-section';
 import { useMediaDevices } from './use-devices';
 
@@ -166,6 +167,12 @@ export function AudioPage() {
         live={settings.live}
         support={status.systemAudio}
         inputs={deviceOptions(inputs, 'System default')}
+        onChange={(live) => update.mutate({ live })}
+      />
+      <OneAppGuide
+        inputs={deviceOptions(inputs, 'System default')}
+        live={settings.live}
+        platform={status.platform}
         onChange={(live) => update.mutate({ live })}
       />
       <LiveSessionSection live={settings.live} onChange={(live) => update.mutate({ live })} />

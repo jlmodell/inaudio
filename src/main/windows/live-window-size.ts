@@ -2,8 +2,43 @@ import type { OverlayPosition } from '@shared/domain/settings';
 
 /** Distance from the edge of the work area, the same as the overlay pill. */
 export const LIVE_WINDOW_MARGIN = 24;
-/** Height of the header alone: the collapsed window is one caption line. */
-export const LIVE_WINDOW_COLLAPSED_HEIGHT = 44;
+/**
+ * Transparent room around the panel. It carries the 6px corners' shadow and is where the
+ * edges are grabbed to resize, since a transparent window has no native frame.
+ */
+export const LIVE_WINDOW_PAD = 8;
+/** The header alone, with its padding: the collapsed window is one caption line. */
+export const LIVE_WINDOW_COLLAPSED_HEIGHT = 44 + LIVE_WINDOW_PAD * 2;
+
+export type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+/**
+ * The window's bounds after its `edge` has been dragged by (dx, dy): the opposite edge
+ * stays put, the size stays within its limits, and the window stays inside the work area.
+ */
+export function resizedBounds(
+  start: Area,
+  edge: ResizeEdge,
+  dx: number,
+  dy: number,
+  limits: { minWidth: number; minHeight: number; maxWidth: number; maxHeight: number },
+  area: Area,
+): Area {
+  let { x, y, width, height } = start;
+  if (edge.includes('e')) width = clamp(start.width + dx, limits.minWidth, Math.min(limits.maxWidth, area.x + area.width - start.x));
+  if (edge.includes('s')) height = clamp(start.height + dy, limits.minHeight, Math.min(limits.maxHeight, area.y + area.height - start.y));
+  if (edge.includes('w')) {
+    const right = start.x + start.width;
+    width = clamp(start.width - dx, limits.minWidth, Math.min(limits.maxWidth, right - area.x));
+    x = right - width;
+  }
+  if (edge.includes('n')) {
+    const bottom = start.y + start.height;
+    height = clamp(start.height - dy, limits.minHeight, Math.min(limits.maxHeight, bottom - area.y));
+    y = bottom - height;
+  }
+  return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+}
 
 export interface Area {
   x: number;

@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { modelIdSchema, voiceIdSchema } from '../domain/models';
-import { LIVE_MAX_CHUNK_SAMPLES, liveSourceSchema } from '../domain/capture';
-import { historyQuerySchema, MAX_SESSION_TRANSCRIPT_CHARS } from '../domain/history';
+import { CHUNK_CUTS, LIVE_MAX_CHUNK_SAMPLES, liveSourceSchema } from '../domain/capture';
+import {
+  EXPORT_FORMATS,
+  HISTORY_KINDS,
+  historyQuerySchema,
+  historyUpdateSchema,
+  MAX_EXPORT_ITEMS,
+  MAX_SESSION_TRANSCRIPT_CHARS,
+} from '../domain/history';
 import { deviceIdSchema, settingsPatchSchema } from '../domain/settings';
 import { COMPANION_IDS } from '../domain/companion';
 import { MAX_READ_ALOUD_CHARS } from '../domain/read-aloud';
@@ -75,12 +82,31 @@ export const schemas = {
         'live-stop',
         'live-cancel',
         'live-window',
+        'open-latest',
+        'open-history',
+        'reset-position',
       ]),
     }),
     z.object({ type: z.literal('select-microphone'), id: deviceIdSchema }),
     z.object({ type: z.literal('select-model'), id: modelIdSchema }),
   ]),
   overlayHover: z.boolean(),
+  // Pointer positions in screen DIPs while the pill is dragged by its handle.
+  overlayDrag: z
+    .object({
+      phase: z.enum(['start', 'move', 'end']),
+      x: z.number().int().min(-100_000).max(100_000),
+      y: z.number().int().min(-100_000).max(100_000),
+    })
+    .strict(),
+  liveWindowResize: z
+    .object({
+      phase: z.enum(['start', 'move', 'end']),
+      edge: z.enum(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']),
+      x: z.number().int().min(-100_000).max(100_000),
+      y: z.number().int().min(-100_000).max(100_000),
+    })
+    .strict(),
   overlayMenu: z.boolean(),
   // A saved live session can be copied or typed from History, so this takes the session cap.
   text: z.string().min(1).max(MAX_SESSION_TRANSCRIPT_CHARS),
@@ -92,6 +118,9 @@ export const schemas = {
       samples: z
         .instanceof(Float32Array)
         .refine((a) => a.length > 0 && a.length <= LIVE_MAX_CHUNK_SAMPLES, 'Chunk length out of range'),
+      cut: z.enum(CHUNK_CUTS),
+      pauseBeforeMs: z.number().int().min(0).max(24 * 60 * 60 * 1000),
+      overlapMs: z.number().int().min(0).max(5_000),
     })
     .strict(),
   // The same shape as a chunk: it is the unfinished stretch the next chunk will hold.
@@ -157,6 +186,15 @@ export const schemas = {
   ]),
   historyQuery: historyQuerySchema,
   historyId: z.string().uuid(),
+  historyUpdate: z.object({ id: z.string().uuid(), patch: historyUpdateSchema }).strict(),
+  // Ids, or a whole view. Never a path: the user picks the file in the native save dialog.
+  historyExport: z
+    .object({
+      ids: z.array(z.string().uuid()).min(1).max(MAX_EXPORT_ITEMS).optional(),
+      kind: z.enum(HISTORY_KINDS).default('all'),
+      format: z.enum(EXPORT_FORMATS),
+    })
+    .strict(),
   windowAction: z.enum(['minimize', 'maximize-toggle', 'close'] as [
     WindowAction,
     ...WindowAction[],

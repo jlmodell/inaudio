@@ -31,6 +31,7 @@ export function DiagnosticsSection({ status }: { status: SystemStatus }) {
   const live = useLive((s) => s.live);
   const vad = MODEL_STATE[status.cleanupModels.vad];
   const denoiser = MODEL_STATE[status.cleanupModels.denoiser];
+  const punct = MODEL_STATE[status.cleanupModels.punct];
   const rows: { label: string; value: ReactNode }[] = [
     { label: 'Capture method', value: captureMethod(status) },
     { label: 'Inaudio’s own audio', value: ownAudio(status, live.ownAudioFiltered) },
@@ -41,6 +42,7 @@ export function DiagnosticsSection({ status }: { status: SystemStatus }) {
         <span className="flex flex-wrap gap-2">
           <Badge tone={vad.tone}>Voice detector {vad.label}</Badge>
           <Badge tone={denoiser.tone}>Noise cleanup {denoiser.label}</Badge>
+          <Badge tone={punct.tone}>Punctuation {punct.label}</Badge>
         </span>
       ),
     },

@@ -27,13 +27,21 @@ interface SherpaDenoiser {
   };
 }
 
+interface SherpaPunctuation {
+  addPunct(text: string): string;
+}
+
 interface CleanupModule {
   Vad: new (config: unknown, bufferSizeInSeconds: number) => SherpaVad;
   OfflineSpeechDenoiser: new (config: unknown) => SherpaDenoiser;
+  OnlinePunctuation: new (config: unknown) => SherpaPunctuation;
 }
 
 let vad: { path: string; engine: SherpaVad } | null = null;
 let denoiser: { path: string; engine: SherpaDenoiser } | null = null;
+let punctuation: { path: string; engine: SherpaPunctuation } | null = null;
+/** The punctuation model reads at most this much at once; longer text is never sent. */
+const MAX_PUNCT_CHARS = 4_000;
 
 function sherpa(): CleanupModule {
   return loadSherpa() as unknown as CleanupModule;
@@ -111,6 +119,21 @@ export function denoise(samples: Float32Array, sampleRate: number, model: string
   const result = denoiserFor(model).run({ samples, sampleRate, enableExternalBuffer: false });
   // GTCRN works at 16 kHz, the same rate every capture path already delivers.
   return result.sampleRate === sampleRate ? result.samples : samples;
+}
+
+/**
+ * Restores punctuation and capitals with the CNN-BiLSTM English model. It expects lower-case
+ * words without punctuation; the caller prepares the text.
+ */
+export function punctuate(text: string, model: string, vocab: string): string {
+  if (!text.trim()) return '';
+  if (punctuation?.path !== model) {
+    const engine = new (sherpa().OnlinePunctuation)({
+      model: { cnnBilstm: model, bpeVocab: vocab, numThreads: 1, provider: 'cpu', debug: 0 },
+    });
+    punctuation = { path: model, engine };
+  }
+  return punctuation.engine.addPunct(text.slice(0, MAX_PUNCT_CHARS));
 }
 
 /** Applies whatever cleanup the request names, in order: voice detection, then denoising. */

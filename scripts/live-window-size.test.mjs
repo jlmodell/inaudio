@@ -44,3 +44,18 @@ test('a dragged window is pulled back on screen only when it no longer fits', ()
   assert.equal(off.x, 1920 - 420);
   assert.equal(off.y, 1040 - 300);
 });
+
+test('dragging an edge resizes from that edge and keeps the opposite one', async () => {
+  const { resizedBounds } = await import('../src/main/windows/live-window-size.ts');
+  const limits = { minWidth: 320, minHeight: 140, maxWidth: 720, maxHeight: 560 };
+  const start = { x: 1000, y: 600, width: 420, height: 300 };
+  assert.deepEqual(resizedBounds(start, 'se', 50, 40, limits, area), { x: 1000, y: 600, width: 470, height: 340 });
+  // West and north move the origin so the right and bottom edges stay where they were.
+  const nw = resizedBounds(start, 'nw', -30, -20, limits, area);
+  assert.deepEqual(nw, { x: 970, y: 580, width: 450, height: 320 });
+  // Limits: never below the minimum or above the maximum.
+  assert.equal(resizedBounds(start, 'e', -500, 0, limits, area).width, 320);
+  assert.equal(resizedBounds(start, 's', 0, 900, limits, area).height, Math.min(560, 1040 - 600));
+  // Never past the work area's edge.
+  assert.equal(resizedBounds({ x: 1600, y: 600, width: 300, height: 300 }, 'e', 400, 0, { ...limits, minWidth: 100 }, area).width, 320);
+});

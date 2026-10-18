@@ -18,6 +18,9 @@
 - A start from the tray, a shortcut or the live window opens the app window hidden (`ensureWindow` → `openWindow(false)`).
 - Sources `system` and `system+mic` use `getDisplayMedia` plus the one-shot capture grant; `device` is `getUserMedia` only (`needsDisplayCapture()`).
 - Queue priorities: dictation 100 > live chunk 50 > preview 10. `LiveCaptureController.preview()` drops a preview whenever anything else is waiting.
+- Live text is assembled in `LiveCaptureController.fold()`: passages join in chunk order through `joinPassage()` (`src/shared/live/join.ts`: no false full stops after a hard cut, overlap words dropped, paragraphs after a 1.5 s pause), then custom words (`src/shared/text/replacements.ts`), then optional punctuation (`text:punct` in the STT worker).
+- The live window is transparent with 6px CSS corners; it has no native resize, so `ResizeEdges` report pointer moves and `LiveWindowController.resizeTo()` applies `resizedBounds()`. The overlay pill is dragged by its handle (`overlay:drag`); its place is saved as work-area fractions (`overlay.customX/Y`), never pixels.
+- History is main-window only (`handleOn('main')`). Export writes to a path from the native save dialog only; the renderer sends ids and a format, never a path.
 - Speech cleanup (Silero VAD, GTCRN) runs inside the STT worker through `stt:transcribe`'s `cleanup` paths. The models ship in `assets/models` and are hash-checked by `CleanupModels`; see its README before replacing them.
 - Microphone `media` permission requests are granted to the `main` surface only.
 - No `Co-Authored-By` trailers in commits or PRs.

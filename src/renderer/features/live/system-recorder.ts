@@ -1,7 +1,7 @@
 import workletUrl from '@renderer/features/dictation/audio/capture.worklet.ts?worker&url';
 import { micConstraints, rawConstraints } from '@renderer/features/dictation/audio/mic-constraints';
 import { LIVE_SAMPLE_RATE, type LiveSource, type MicProcessing } from '@shared/domain/capture';
-import { Chunker } from './chunker';
+import { Chunker, type ChunkAudio } from './chunker';
 
 export interface SystemRecorderOptions {
   source: LiveSource;
@@ -12,7 +12,7 @@ export interface SystemRecorderOptions {
   systemGain: number;
   mic: MicProcessing;
   onLevel(level: number): void;
-  onChunk(samples: Float32Array): void;
+  onChunk(chunk: ChunkAudio): void;
   /** The system track ended without being asked to: device change, permission, or app exit. */
   onTrackEnded(): void;
 }
@@ -38,7 +38,7 @@ export class SystemRecorder {
   private mic: MediaStream | null = null;
   private node: AudioWorkletNode | null = null;
   private chunker = new Chunker({ sampleRate: LIVE_SAMPLE_RATE });
-  private onChunk: ((samples: Float32Array) => void) | null = null;
+  private onChunk: ((chunk: ChunkAudio) => void) | null = null;
   private stopping = false;
   ownAudioFiltered = false;
 

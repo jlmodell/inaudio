@@ -1,4 +1,4 @@
-import { Copy, Loader2, MonitorSpeaker, PictureInPicture2, Square, X } from 'lucide-react';
+import { Copy, History, Loader2, MonitorSpeaker, PictureInPicture2, Square, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { needsDisplayCapture, type LiveSource } from '@shared/domain/capture';
 import { MODEL_CATALOG } from '@shared/domain/models';
@@ -14,6 +14,7 @@ import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/q
 import { useUi } from '@renderer/stores/ui-store';
 import { ConsentDialog } from './consent-dialog';
 import { useLive } from './live-store';
+import { SavedSessionsDrawer } from './saved-sessions';
 
 const SOURCES: { value: LiveSource; label: string }[] = [
   { value: 'system', label: 'System audio' },
@@ -47,6 +48,7 @@ export function LivePage() {
   const update = useUpdateSettings();
   const navigate = useUi((s) => s.navigate);
   const [asking, setAsking] = useState(false);
+  const [sessions, setSessions] = useState(false);
   const elapsed = useElapsed(live.phase === 'capturing' ? live.startedAt : 0);
   if (!settings || !status) return null;
 
@@ -105,19 +107,26 @@ export function LivePage() {
         description="Transcribe audio playing on this computer, like a meeting or a video. Audio is processed here and never saved."
         actions={
           <>
+            <Button size="sm" onClick={() => setSessions(true)}>
+              <History /> Saved sessions
+            </Button>
             <Button size="sm" onClick={() => void api.live.openWindow()}>
               <PictureInPicture2 /> Pop out
             </Button>
-            <Segmented<LiveSource>
-              label="Audio source"
-              value={source}
-              disabled={active}
-              onValueChange={(next) => update.mutate({ live: { source: next } })}
-              options={SOURCES}
-            />
           </>
         }
       />
+
+      <div className="-mt-2 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium text-muted">Source</span>
+        <Segmented<LiveSource>
+          label="Audio source"
+          value={source}
+          disabled={active}
+          onValueChange={(next) => update.mutate({ live: { source: next } })}
+          options={SOURCES}
+        />
+      </div>
 
       {!available && (
         <Notice
@@ -231,6 +240,7 @@ export function LivePage() {
       </section>
 
       <ConsentDialog open={asking || consent !== null} onCancel={onCancelConsent} onConfirm={onConfirm} />
+      <SavedSessionsDrawer open={sessions} onOpenChange={setSessions} />
     </div>
   );
 }

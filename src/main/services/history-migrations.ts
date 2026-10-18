@@ -75,4 +75,8 @@ export const MIGRATIONS = [
    CREATE TRIGGER transcripts_ad AFTER DELETE ON transcripts BEGIN
      INSERT INTO transcripts_fts(transcripts_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
    END;`,
+  // A title the user can give a transcript, and pinning. Added columns keep every row.
+  `ALTER TABLE transcripts ADD COLUMN title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 120);
+   ALTER TABLE transcripts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1));
+   CREATE INDEX transcripts_pinned ON transcripts (pinned, created_at DESC);`,
 ];

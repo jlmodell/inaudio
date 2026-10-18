@@ -1,12 +1,12 @@
 import { screen, type BrowserWindow, type Display } from 'electron';
 import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
-import type { Settings } from '@shared/domain/settings';
+import type { Settings, SettingsPatch } from '@shared/domain/settings';
 import type { AudioDevice, DictationState, OverlayLive, OverlayReading, OverlayState } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
 import { isWayland, overlaySupport } from '../app/platform';
 import { registerSurface } from '../security/surfaces';
 import { createOverlayWindow } from '../windows/overlay-window';
-import { OVERLAY_MARGIN, overlayAlign, overlaySize, type OverlayContent } from '../windows/overlay-size';
+import { OVERLAY_MARGIN, OVERLAY_PAD, OVERLAY_PILL_HEIGHT, overlayAlign, overlaySize, type OverlayContent } from '../windows/overlay-size';
 
 interface OverlayOptions {
   settings(): Settings;
@@ -16,6 +16,8 @@ interface OverlayOptions {
   devices(): AudioDevice[];
   /** Installed recognition models, in catalog order. */
   models(): { id: ModelId; label: string }[];
+  /** Saves where the pill was dragged to. */
+  updateSettings(patch: SettingsPatch): void;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -35,6 +37,8 @@ export class OverlayController {
   private dictation: DictationState = { phase: 'idle', startedAt: 0, level: 0, message: '' };
   private reading: OverlayReading | null = null;
   private live: OverlayLive | null = null;
+  /** The pill is being dragged by its handle: where the window and the pointer started. */
+  private drag: { bounds: Electron.Rectangle; x: number; y: number } | null = null;
   private readonly onDisplayChange = () => this.place();
 
   constructor(private readonly options: OverlayOptions) {
@@ -91,13 +95,20 @@ export class OverlayController {
 
   /** A live transcript being recorded, or null once it stops. */
   setLive(live: OverlayLive | null): void {
+    // New words alone change nothing about the window: they are pushed, not re-laid out.
     const same =
       !!live === !!this.live &&
       live?.startedAt === this.live?.startedAt &&
       live?.source === this.live?.source &&
-      live?.windowOpen === this.live?.windowOpen;
+      live?.windowOpen === this.live?.windowOpen &&
+      !!live?.caption === !!this.live?.caption;
+    const words = live?.caption !== this.live?.caption || live?.provisional !== this.live?.provisional;
     this.live = live;
-    if (same || this.disposed) return;
+    if (this.disposed) return;
+    if (same) {
+      if (words && this.dictation.phase === 'idle') this.push();
+      return;
+    }
     if (!live && this.dictation.phase === 'idle' && !this.reading) {
       this.hover = false;
       this.menu = false;
@@ -137,6 +148,49 @@ export class OverlayController {
 
   visible(): boolean {
     return !!this.win && !this.win.isDestroyed() && this.win.isVisible();
+  }
+
+  /**
+   * The pill is dragged by its handle. The window follows the pointer, stays on a screen, and
+   * on release its place is saved as fractions of that screen's work area, never as pixels.
+   */
+  dragTo(phase: 'start' | 'move' | 'end', x: number, y: number): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    if (phase === 'start') {
+      this.drag = { bounds: win.getBounds(), x, y };
+      return;
+    }
+    const drag = this.drag;
+    if (!drag) return;
+    const area = screen.getDisplayNearestPoint({ x, y }).workArea;
+    const { width, height } = drag.bounds;
+    const next = {
+      x: clamp(drag.bounds.x + x - drag.x, area.x - OVERLAY_PAD, area.x + area.width - width + OVERLAY_PAD),
+      y: clamp(drag.bounds.y + y - drag.y, area.y - OVERLAY_PAD, area.y + area.height - height + OVERLAY_PAD),
+      width,
+      height,
+    };
+    win.setBounds(next);
+    if (phase !== 'end') return;
+    this.drag = null;
+    // The pill's own centre and the edge the window grows from, as shares of the area.
+    const centreX = next.x + width / 2;
+    const top = this.anchorTop();
+    const pillY = top ? next.y + OVERLAY_PAD + OVERLAY_PILL_HEIGHT / 2 : next.y + height - OVERLAY_PAD - OVERLAY_PILL_HEIGHT / 2;
+    this.options.updateSettings({
+      overlay: {
+        customX: clamp((centreX - area.x) / area.width, 0, 1),
+        customY: clamp((pillY - area.y) / area.height, 0, 1),
+      },
+    });
+  }
+
+  /** The window's pinned edge: the top half of the screen grows down, the bottom half up. */
+  private anchorTop(): boolean {
+    const { overlay } = this.options.settings();
+    if (overlay.customX !== null && overlay.customY !== null) return overlay.customY < 0.5;
+    return overlay.position.startsWith('top');
   }
 
   destroy(): void {
@@ -222,22 +276,30 @@ export class OverlayController {
 
   private place(): void {
     const win = this.win;
-    if (!win || win.isDestroyed()) return;
+    // While the user drags the pill, the pointer decides where it is.
+    if (!win || win.isDestroyed() || this.drag) return;
     const { overlay } = this.options.settings();
     const { width, height } = overlaySize(overlay, this.content());
     const area = this.display().workArea;
-    const anchorTop = overlay.position.startsWith('top');
+    const anchorTop = this.anchorTop();
+    const custom = overlay.customX !== null && overlay.customY !== null;
 
     let x: number;
-    if (overlay.position.endsWith('left')) x = area.x + OVERLAY_MARGIN;
+    if (custom) x = area.x + (overlay.customX ?? 0.5) * area.width - width / 2;
+    else if (overlay.position.endsWith('left')) x = area.x + OVERLAY_MARGIN;
     else if (overlay.position.endsWith('right')) x = area.x + area.width - width - OVERLAY_MARGIN;
     else x = area.x + Math.round((area.width - width) / 2);
 
     // Growing for a menu must not move the pill: a bottom anchor grows upward because
     // its lower edge stays pinned, a top anchor grows downward.
-    const y = anchorTop
-      ? area.y + OVERLAY_MARGIN
-      : area.y + area.height - height - OVERLAY_MARGIN;
+    const pillY = area.y + (overlay.customY ?? 0) * area.height;
+    const y = custom
+      ? anchorTop
+        ? pillY - OVERLAY_PILL_HEIGHT / 2 - OVERLAY_PAD
+        : pillY + OVERLAY_PILL_HEIGHT / 2 + OVERLAY_PAD - height
+      : anchorTop
+        ? area.y + OVERLAY_MARGIN
+        : area.y + area.height - height - OVERLAY_MARGIN;
 
     win.setBounds({
       x: clamp(Math.round(x), area.x, area.x + Math.max(0, area.width - width)),
@@ -258,6 +320,7 @@ export class OverlayController {
       devices: this.options.devices().length,
       language: MODEL_CATALOG[settings.stt.modelId].languages.length > 1,
       live: this.dictation.phase === 'idle' && this.live !== null,
+      caption: settings.overlay.showCaption && !!this.live?.caption,
       reading:
         this.dictation.phase === 'idle' && !this.live && this.reading
           ? { message: this.reading.status === 'error' && this.reading.message !== '' }
@@ -298,8 +361,10 @@ export class OverlayController {
       armed: this.armed(),
       // `place()` pins this edge and grows the window on the free side, so the renderer
       // aligns the pill here and opens its panels into the room it was given.
-      anchor: overlay.position.startsWith('top') ? 'top' : 'bottom',
-      align: overlayAlign(overlay.position),
+      anchor: this.anchorTop() ? 'top' : 'bottom',
+      // A dragged pill is centred on the point it was dropped at.
+      align: overlay.customX !== null && overlay.customY !== null ? 'center' : overlayAlign(overlay.position),
+      showCaption: overlay.showCaption,
       accentTone: appearance.accentTone,
       // The window was sized from these same four flags, so the renderer draws a section
       // exactly when the box has room for it. It never decides its own extent.

@@ -17,6 +17,7 @@ export type WorkerRequest =
   | { id: number; type: 'stt:transcribe'; samples: Float32Array; sampleRate: number; cleanup?: SttCleanup }
   | { id: number; type: 'tts:load'; modelId: string; dir: string; layout: TtsVariant; threads: number }
   | { id: number; type: 'tts:speak'; text: string; sid: number; speed: number }
+  | { id: number; type: 'text:punct'; text: string; model: string; vocab: string }
   | { id: number; type: 'unload'; kind: 'stt' | 'tts' | 'all' }
   | { id: number; type: 'ping' };
 

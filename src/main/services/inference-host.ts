@@ -13,7 +13,7 @@ interface Pending {
 }
 const TIMEOUTS: Record<RequestInput['type'], number> = {
   'stt:load': 120_000, 'stt:transcribe': 180_000,
-  'tts:load': 120_000, 'tts:speak': 180_000, unload: 10_000, ping: 5_000,
+  'tts:load': 120_000, 'tts:speak': 180_000, 'text:punct': 30_000, unload: 10_000, ping: 5_000,
 };
 const MAX_RESTARTS = 5;
 
@@ -112,6 +112,10 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
   }
   transcribe(samples: Float32Array, sampleRate: number, cleanup?: SttCleanup): Promise<SttResult> {
     return this.request({ type: 'stt:transcribe', samples, sampleRate, cleanup }) as Promise<SttResult>;
+  }
+  /** Re-punctuates text with the bundled English model. Never needs a speech model loaded. */
+  punctuate(text: string, model: string, vocab: string): Promise<string> {
+    return this.request({ type: 'text:punct', text, model, vocab }) as Promise<string>;
   }
   speak(text: string, sid: number, speed: number): Promise<TtsResult> {
     return this.request({ type: 'tts:speak', text, sid, speed }) as Promise<TtsResult>;

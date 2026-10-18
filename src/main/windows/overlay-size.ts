@@ -41,6 +41,10 @@ const LANGUAGE_CHIP = 52;
 const BUTTON = 38;
 const READING_COUNT = 56;
 const READING_PROGRESS = 64;
+/** The latest words of a live transcript, drawn in place of the source label. */
+export const CAPTION = 250;
+/** The drag handle at the start of an armed pill, and its gap. */
+const GRIP = 30;
 
 /** What the reading readout shows; null when nothing is being read. */
 export interface OverlayReadingContent {
@@ -65,6 +69,8 @@ export interface OverlayContent {
   reading: OverlayReadingContent | null;
   /** A live transcript is recording; it takes the pill while dictation is idle, ahead of reading. */
   live: boolean;
+  /** The live session has words to show and the caption is on. */
+  caption: boolean;
 }
 
 /**
@@ -73,16 +79,24 @@ export interface OverlayContent {
  * left an empty stretch inside the pill whenever a section was hidden.
  */
 export function overlayPillWidth(overlay: Settings['overlay'], content: OverlayContent): number {
+  const failed = content.phase === 'error';
+  // Armed, the pill starts with a handle it can be dragged by.
+  return pillContentWidth(overlay, content) + (content.armed && !failed ? GRIP : 0);
+}
+
+function pillContentWidth(overlay: Settings['overlay'], content: OverlayContent): number {
   const { phase } = content;
   const failed = phase === 'error';
   const armed = content.armed && !failed;
 
   if (phase === 'idle' && content.live) {
+    // At rest with words to show, the caption replaces the label and the meter.
+    if (content.caption && !armed) return CHROME + ICON + GAP + (overlay.showTimer ? TIMER : 0) + CAPTION;
     let width = CHROME + ICON + GAP + LABEL.live;
     if (overlay.showTimer) width += TIMER;
     if (overlay.showLevel && !armed) width += LEVEL;
-    // Show the live window, stop and discard.
-    if (armed) width += DIVIDER + BUTTON * 3;
+    // Show the live window, stop, discard and the menu.
+    if (armed) width += DIVIDER + BUTTON * 4;
     return width;
   }
 
