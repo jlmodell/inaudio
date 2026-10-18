@@ -1,3 +1,4 @@
+import type { LiveChunk, LiveCommand, LiveReport, LiveStartInput, LiveState } from '../domain/capture';
 import type { HistoryPage, HistoryQuery, Transcript } from '../domain/history';
 import type { ModelId, ModelStatus, VoiceId } from '../domain/models';
 import type { Settings, SettingsPatch } from '../domain/settings';
@@ -81,6 +82,19 @@ export interface InaudioApi {
      */
     report(devices: AudioDevice[]): void;
   };
+  live: {
+    /** The current session, for a window that opens after it started. */
+    get(): Promise<LiveState>;
+    /** Asks the main process to start a session; it arms the capture grant and commands this window. */
+    start(input: LiveStartInput): Promise<void>;
+    stop(): Promise<void>;
+    /** Ends the session without saving anything. */
+    cancel(): Promise<void>;
+    /** One chunk of 16 kHz mono audio; resolves once it is transcribed. */
+    chunk(chunk: LiveChunk): Promise<void>;
+    /** The capturing window reporting what it is actually doing. */
+    report(report: LiveReport): void;
+  };
   overlay: {
     /** Asks the main process to run one of a fixed set of overlay commands. */
     act(action: OverlayAction): Promise<void>;
@@ -133,5 +147,7 @@ export interface InaudioApi {
     onReadAloudSession(listener: (session: ReadAloudSession) => void): Unsubscribe;
     onReadAloudState(listener: (state: ReadAloudState) => void): Unsubscribe;
     onReadAloudChunk(listener: (chunk: ReadAloudChunk) => void): Unsubscribe;
+    onLiveState(listener: (state: LiveState) => void): Unsubscribe;
+    onLiveCommand(listener: (command: LiveCommand) => void): Unsubscribe;
   };
 }

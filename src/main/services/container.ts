@@ -14,6 +14,8 @@ import type { AppPaths } from '../app/paths';
 import { DictationController } from './dictation-controller';
 import { HistoryRepository } from './history-repository';
 import { InferenceHost } from './inference-host';
+import { LiveCaptureController } from './live-capture-controller';
+import { systemAudioSupport } from '../app/platform';
 import { ModelManager } from './model-manager';
 import { OverlayController } from './overlay-controller';
 import { ReadAloudController } from './read-aloud/read-aloud-controller';
@@ -41,6 +43,7 @@ export interface Services {
   overlay: OverlayController;
   dictation: DictationController;
   readAloud: ReadAloudController;
+  live: LiveCaptureController;
   /** Records the devices the capturing window can see, for the tray and the id allow-list. */
   reportDevices(devices: AudioDevice[]): void;
   /** The devices last reported, so the overlay can offer the same set the tray does. */
@@ -356,11 +359,30 @@ export function createServices(options: {
     companion,
   });
   settings.on('change', (next, previous) => readAloud.onSettings(next, previous));
+  // Live chunks share the speech queue with dictation but sit below it: a dictation take
+  // started mid-meeting is transcribed first, and the live backlog catches up after.
+  const LIVE_PRIORITY = 50;
+  const live = new LiveCaptureController({
+    settings: () => settings.get(),
+    support: systemAudioSupport,
+    isInstalled: (id) => models.isInstalled(id),
+    preload: (id) => void queues[kindOf(id)].serial(() => load(id), LIVE_PRIORITY).catch(() => undefined),
+    transcribe: (id, samples) => runModel(id, () => hosts.stt.transcribe(samples, 16_000), LIVE_PRIORITY),
+    save: (transcript) => history.add(transcript),
+    window: options.window,
+    ensureWindow: options.ensureWindow,
+    showWindow: options.showWindow,
+    send: options.send,
+    overlay,
+    tray: options.tray,
+    companion,
+    readAloud,
+  });
 
   return {
     paths, settings, history, models, stt: hosts.stt, tts: hosts.tts, inserter, companion, updater,
     shortcuts: options.shortcuts, tray: options.tray, window: options.window,
-    overlay, dictation, readAloud, reportDevices, updateSettings: applySettings,
+    overlay, dictation, readAloud, live, reportDevices, updateSettings: applySettings,
     listDevices: () => reportedDevices,
     installedSttModels,
     status: () => {
@@ -421,6 +443,7 @@ export function createServices(options: {
       clearTimeout(idleTimers.stt);
       clearTimeout(idleTimers.tts);
       dictation.dispose();
+      live.dispose();
       readAloud.dispose();
       companion.dispose();
       overlay.destroy();

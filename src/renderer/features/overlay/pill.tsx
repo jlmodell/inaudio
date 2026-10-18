@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { OverlayReading, OverlayState } from '@shared/domain/system';
+import type { OverlayLive, OverlayReading, OverlayState } from '@shared/domain/system';
 import { api } from '@renderer/lib/api';
 import { cn } from '@renderer/lib/cn';
 import { LevelBars, Timer } from './level-bars';
@@ -157,6 +157,41 @@ function ReadingContent({
   );
 }
 
+/** A live transcript recording system audio: always marked, and once armed, stop and discard. */
+function LiveContent({ live, state, armed }: { live: OverlayLive; state: OverlayState; armed: boolean }) {
+  return (
+    <>
+      <Dot className="bg-record" pulse={state.animate} />
+      <span className={cn(labelClass, 'text-ink')} title={live.source === 'system+mic' ? 'System audio and microphone' : undefined}>
+        System audio
+      </span>
+      {state.showTimer && <Timer startedAt={live.startedAt} />}
+      {state.showLevel && !armed && <LevelBars level={live.level} active animate={state.animate} />}
+      {armed && (
+        <>
+          <Divider />
+          <button
+            type="button"
+            aria-label="Stop live transcript"
+            onClick={() => void api.overlay.act({ type: 'live-stop' })}
+            className={cn(iconButtonClass, recordButtonClass)}
+          >
+            <Square aria-hidden className="size-[11px] fill-current" />
+          </button>
+          <button
+            type="button"
+            aria-label="Discard live transcript"
+            onClick={() => void api.overlay.act({ type: 'live-cancel' })}
+            className={iconButtonClass}
+          >
+            <X aria-hidden className="size-[15px]" />
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
 /**
  * The overlay itself: one pill, sized by the main process, showing the phase and — once the
  * pointer arms it — the controls that act on it.
@@ -174,7 +209,9 @@ export function Pill({ state }: { state: OverlayState }) {
   const showModel = state.showModel && !failed;
   const showLanguage = state.showLanguage && !failed && state.language !== '' && !armed;
   const trailing = armed || failed || showModel || showLanguage;
-  const reading = state.phase === 'idle' ? state.reading : null;
+  // Dictation always wins the pill; a live session comes before reading.
+  const live = state.phase === 'idle' ? state.live : null;
+  const reading = state.phase === 'idle' && !live ? state.reading : null;
   const menuButton = (
     <OverlayMenu
       state={state}
@@ -193,10 +230,12 @@ export function Pill({ state }: { state: OverlayState }) {
         'shadow-[0_6px_20px_rgb(0_0_0/0.14)] dark:shadow-[0_6px_22px_rgb(0_0_0/0.5)]',
         state.animate && 'transition-opacity duration-150',
         // At rest the pill sits back a little; working, armed or failing it comes forward.
-        !armed && !busy && !failed && !reading && 'opacity-[0.92]',
+        !armed && !busy && !failed && !reading && !live && 'opacity-[0.92]',
       )}
     >
-      {reading ? (
+      {live ? (
+        <LiveContent live={live} state={state} armed={armed} />
+      ) : reading ? (
         <ReadingContent reading={reading} armed={armed} controls={menuButton} />
       ) : (
         <>

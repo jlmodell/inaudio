@@ -55,6 +55,7 @@ const SEARCH_ITEMS = [
   { id: 'settings-shortcut-read-pause', label: 'Pause reading shortcut', section: 'Shortcuts', keywords: 'read aloud resume speech' },
   { id: 'settings-shortcut-read-stop', label: 'Stop reading shortcut', section: 'Shortcuts', keywords: 'read aloud end speech' },
   { id: 'settings-shortcut-overlay', label: 'Overlay shortcut', section: 'Shortcuts', keywords: 'show hide pill' },
+  { id: 'settings-shortcut-live', label: 'Live transcript shortcut', section: 'Shortcuts', keywords: 'system audio loopback meeting record' },
   { id: 'settings-performance', label: 'Performance', section: 'Performance', keywords: 'cpu threads power battery memory unload' },
   { id: 'settings-unload', label: 'Unload models when idle', section: 'Performance', keywords: 'memory ram free idle minutes' },
   { id: 'settings-app', label: 'App', section: 'App', keywords: 'login tray setup close quit' },
@@ -291,6 +292,20 @@ export function SettingsPage() {
             platform={status.platform}
             status={status.shortcuts.overlay}
             onChange={(toggleShortcut) => update.mutate({ overlay: { toggleShortcut } })}
+          />
+        </Row>
+        <Row
+          id="settings-shortcut-live"
+          label="Start or stop a live transcript"
+          description={SHORTCUT_NOTE[status.shortcuts.live] ?? 'Records system audio from any app. Off until you set it.'}
+        >
+          <ShortcutInput
+            label="Live transcript shortcut"
+            optional
+            value={settings.live.shortcut}
+            platform={status.platform}
+            status={status.shortcuts.live}
+            onChange={(shortcut) => update.mutate({ live: { shortcut } })}
           />
         </Row>
       </Section>

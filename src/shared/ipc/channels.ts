@@ -23,6 +23,12 @@ export const IPC = {
   dictationTranscribe: 'dictation:transcribe',
   dictationState: 'dictation:state',
   audioDevices: 'audio:devices',
+  liveGet: 'live:get',
+  liveStart: 'live:start',
+  liveStop: 'live:stop',
+  liveCancel: 'live:cancel',
+  liveChunk: 'live:chunk',
+  liveReport: 'live:report',
   overlayAction: 'overlay:action',
   overlayHover: 'overlay:hover',
   overlayMenu: 'overlay:menu',
@@ -56,6 +62,8 @@ export const EVENTS = {
   readAloudSession: 'event:read-aloud-session',
   readAloudState: 'event:read-aloud-state',
   readAloudChunk: 'event:read-aloud-chunk',
+  liveState: 'event:live-state',
+  liveCommand: 'event:live-command',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

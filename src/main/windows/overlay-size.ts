@@ -23,13 +23,14 @@ export const OVERLAY_MESSAGE_SPACE = 184;
 const CHROME = 30; // 1px border and 14px padding on each side
 const ICON = 16;
 const GAP = 10;
-const LABEL: Record<DictationPhase | 'reading', number> = {
+const LABEL: Record<DictationPhase | 'reading' | 'live', number> = {
   idle: 42,
   listening: 64,
   transcribing: 86,
   inserting: 64,
   error: 120,
   reading: 66,
+  live: 86,
 };
 const TIMER = 50;
 const LEVEL = 38;
@@ -62,6 +63,8 @@ export interface OverlayContent {
   language: boolean;
   /** A read-aloud session the pill shows while dictation is idle. */
   reading: OverlayReadingContent | null;
+  /** A live transcript is recording; it takes the pill while dictation is idle, ahead of reading. */
+  live: boolean;
 }
 
 /**
@@ -73,6 +76,15 @@ export function overlayPillWidth(overlay: Settings['overlay'], content: OverlayC
   const { phase } = content;
   const failed = phase === 'error';
   const armed = content.armed && !failed;
+
+  if (phase === 'idle' && content.live) {
+    let width = CHROME + ICON + GAP + LABEL.live;
+    if (overlay.showTimer) width += TIMER;
+    if (overlay.showLevel && !armed) width += LEVEL;
+    // Stop and discard.
+    if (armed) width += DIVIDER + BUTTON * 2;
+    return width;
+  }
 
   if (phase === 'idle' && content.reading) {
     if (content.reading.message) return CHROME + ICON + GAP + LABEL.error + OVERLAY_MESSAGE_SPACE + DIVIDER + BUTTON;

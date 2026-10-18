@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { modelIdSchema, voiceIdSchema } from '../domain/models';
-import { historyQuerySchema, MAX_TRANSCRIPT_CHARS } from '../domain/history';
+import { LIVE_MAX_CHUNK_SAMPLES, liveSourceSchema } from '../domain/capture';
+import { historyQuerySchema, MAX_SESSION_TRANSCRIPT_CHARS } from '../domain/history';
 import { deviceIdSchema, settingsPatchSchema } from '../domain/settings';
 import { COMPANION_IDS } from '../domain/companion';
 import { MAX_READ_ALOUD_CHARS } from '../domain/read-aloud';
@@ -71,6 +72,8 @@ export const schemas = {
         'read-pause',
         'read-resume',
         'read-stop',
+        'live-stop',
+        'live-cancel',
       ]),
     }),
     z.object({ type: z.literal('select-microphone'), id: deviceIdSchema }),
@@ -78,7 +81,28 @@ export const schemas = {
   ]),
   overlayHover: z.boolean(),
   overlayMenu: z.boolean(),
-  text: z.string().min(1).max(MAX_TRANSCRIPT_CHARS),
+  // A saved live session can be copied or typed from History, so this takes the session cap.
+  text: z.string().min(1).max(MAX_SESSION_TRANSCRIPT_CHARS),
+  liveStart: z.object({ source: liveSourceSchema, acknowledged: z.boolean() }).strict(),
+  liveChunk: z
+    .object({
+      sessionId: z.string().uuid(),
+      seq: z.number().int().min(0).max(1_000_000),
+      samples: z
+        .instanceof(Float32Array)
+        .refine((a) => a.length > 0 && a.length <= LIVE_MAX_CHUNK_SAMPLES, 'Chunk length out of range'),
+    })
+    .strict(),
+  liveReport: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('capturing'), sessionId: z.string().uuid(), ownAudioFiltered: z.boolean() }).strict(),
+    z.object({ type: z.literal('level'), sessionId: z.string().uuid(), level: z.number().min(0).max(1) }).strict(),
+    z
+      .object({ type: z.literal('ended'), sessionId: z.string().uuid(), reason: z.enum(['stopped', 'track-ended']) })
+      .strict(),
+    z
+      .object({ type: z.literal('error'), sessionId: z.string().uuid(), message: z.string().max(MAX_STATE_MESSAGE_CHARS) })
+      .strict(),
+  ]),
   speak: z.object({
     text: z.string().trim().min(1).max(MAX_TTS_CHARS),
     voiceId: voiceIdSchema.optional(),
@@ -116,6 +140,7 @@ export const schemas = {
     'file.run-setup',
     'file.quit',
     'view.dictation',
+    'view.live',
     'view.history',
     'view.read-aloud',
     'view.models',

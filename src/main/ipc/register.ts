@@ -101,6 +101,7 @@ export function registerIpc(services: Services): void {
       inferenceMs: result.inferenceMs,
       language: result.language.slice(0, 16),
       createdAt: Date.now(),
+      source: 'microphone',
     };
     if (current.dictation.saveHistory) history.add(transcript);
     response.transcript = transcript;
@@ -135,6 +136,15 @@ export function registerIpc(services: Services): void {
   listen('main', IPC.audioDevices, schemas.audioDevices, (devices) => {
     services.reportDevices(devices);
   });
+
+  // Live transcripts: only the app window may start, feed or report a session, because it is
+  // the only window the capture grant is ever armed for.
+  handleOn('main', IPC.liveGet, none, () => services.live.snapshot());
+  handleOn('main', IPC.liveStart, schemas.liveStart, (input) => services.live.start(input));
+  handleOn('main', IPC.liveStop, none, () => services.live.stop());
+  handleOn('main', IPC.liveCancel, none, () => services.live.cancel());
+  handleOn('main', IPC.liveChunk, schemas.liveChunk, (chunk) => services.live.chunk(chunk));
+  listen('main', IPC.liveReport, schemas.liveReport, (report) => services.live.report(report));
 
   // The overlay may only ask for its fixed command list, and only from the overlay window.
   handleOn('overlay', IPC.overlayAction, schemas.overlayAction, (action) => {
@@ -181,6 +191,14 @@ export function registerIpc(services: Services): void {
     }
     if (command === 'read-stop') {
       services.readAloud.stop();
+      return;
+    }
+    if (command === 'live-stop') {
+      services.live.stop();
+      return;
+    }
+    if (command === 'live-cancel') {
+      services.live.cancel();
       return;
     }
     // open-app and open-audio both need the real window, which the overlay does not own.

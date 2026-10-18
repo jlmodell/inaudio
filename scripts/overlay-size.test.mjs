@@ -23,6 +23,7 @@ const content = {
   devices: 1,
   language: false,
   reading: null,
+  live: false,
 };
 
 test('the timer and level only take room while listening', () => {
@@ -61,6 +62,17 @@ test('a reading session replaces the readout while dictation is idle', () => {
   assert.ok(armed > reading);
   assert.ok(failed > reading);
   const listening = overlayPillWidth(overlay, { ...content, phase: 'listening', reading: { message: false } });
+  assert.equal(listening, overlayPillWidth(overlay, { ...content, phase: 'listening' }));
+});
+
+test('a live session takes the pill ahead of reading but behind dictation', () => {
+  const live = overlayPillWidth(overlay, { ...content, live: true });
+  const withReading = overlayPillWidth(overlay, { ...content, live: true, reading: { message: false } });
+  const armed = overlayPillWidth(overlay, { ...content, live: true, armed: true });
+  assert.ok(live > overlayPillWidth(overlay, content));
+  assert.equal(withReading, live);
+  assert.ok(armed > overlayPillWidth({ ...overlay, showLevel: false }, { ...content, live: true }));
+  const listening = overlayPillWidth(overlay, { ...content, phase: 'listening', live: true });
   assert.equal(listening, overlayPillWidth(overlay, { ...content, phase: 'listening' }));
 });
 

@@ -1,5 +1,6 @@
 import * as NavigationMenu from '@radix-ui/react-navigation-menu';
-import { AudioLines, Boxes, History, Mic, PanelLeftClose, PanelLeftOpen, Settings2, Sparkles, Volume2 } from 'lucide-react';
+import { AudioLines, Boxes, Captions, History, Mic, PanelLeftClose, PanelLeftOpen, Settings2, Sparkles, Volume2 } from 'lucide-react';
+import { useLive } from '@renderer/features/live/live-store';
 import type { ComponentType } from 'react';
 import { Wordmark } from '@renderer/components/brand/logo';
 import { IconButton } from '@renderer/components/ui/icon-button';
@@ -12,6 +13,7 @@ import { EngineStatus } from './engine-status';
 
 const NAV: { route: Route; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { route: 'dictation', label: 'Dictation', icon: Mic },
+  { route: 'live', label: 'Live transcript', icon: Captions },
   { route: 'history', label: 'History', icon: History },
   { route: 'read-aloud', label: 'Read Aloud', icon: Volume2 },
   { route: 'models', label: 'Models', icon: Boxes },
@@ -25,6 +27,7 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
   const { data: settings } = useSettings();
   const update = useUpdateSettings();
   const phase = useDictation((s) => s.phase);
+  const liveCapturing = useLive((s) => s.live.phase === 'capturing');
   const collapsed = settings?.appearance.sidebarCollapsed ?? false;
 
   const toggle = () => update.mutate({ appearance: { sidebarCollapsed: !collapsed } });
@@ -59,6 +62,9 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
                   {!collapsed && <span>{label}</span>}
                   {target === 'dictation' && phase === 'listening' && (
                     <span aria-label="Listening" className="absolute top-2 right-2 size-2 animate-pulse rounded-full bg-record" />
+                  )}
+                  {target === 'live' && liveCapturing && (
+                    <span aria-label="Recording system audio" className="absolute top-2 right-2 size-2 animate-pulse rounded-full bg-record" />
                   )}
                 </button>
               </NavigationMenu.Link>

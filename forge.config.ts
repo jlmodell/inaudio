@@ -34,6 +34,9 @@ const config: ForgeConfig = {
     },
     extendInfo: {
       NSMicrophoneUsageDescription: 'Inaudio transcribes your voice on this computer.',
+      // Required for the CoreAudio tap behind system-audio capture on macOS 14.2+; without it
+      // Chromium hands back a silent, already-ended track and reports no error.
+      NSAudioCaptureUsageDescription: 'Inaudio transcribes audio playing on this computer when you start a live transcript.',
     },
   },
   hooks: {

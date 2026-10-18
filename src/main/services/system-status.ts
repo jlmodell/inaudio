@@ -1,7 +1,7 @@
 import { app, Notification, powerMonitor, systemPreferences } from 'electron';
 import type { PermissionState, SystemStatus, WorkerHealth } from '@shared/domain/system';
 import type { AppPaths } from '../app/paths';
-import { overlaySupport } from '../app/platform';
+import { overlaySupport, systemAudioSupport } from '../app/platform';
 import type { OverlayController } from './overlay-controller';
 import type { ShortcutService } from './shortcuts';
 import type { TextInserter } from './text-insertion';
@@ -30,6 +30,7 @@ export function collectSystemStatus(deps: {
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
     microphonePermission: microphonePermission(),
+    systemAudio: systemAudioSupport(),
     accessibilityTrusted:
       process.platform === 'darwin' ? systemPreferences.isTrustedAccessibilityClient(false) : null,
     insertion: deps.inserter.support(),

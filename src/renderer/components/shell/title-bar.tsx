@@ -21,6 +21,7 @@ const MENUS: {
     label: 'View',
     items: [
       { label: 'Dictation', command: 'view.dictation' },
+      { label: 'Live transcript', command: 'view.live' },
       { label: 'History', command: 'view.history' },
       { label: 'Read Aloud', command: 'view.read-aloud' },
       { label: 'Models', command: 'view.models' },

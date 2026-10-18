@@ -1,3 +1,4 @@
+import type { LiveSource, SystemAudioSupport } from './capture';
 import type { ModelStatus } from './models';
 import type { AccentTone } from './settings';
 import type { UpdateStatus } from './update';
@@ -28,7 +29,8 @@ export type ShortcutId =
   | 'readAloudPause'
   | 'readAloudStop'
   | 'cancel'
-  | 'overlay';
+  | 'overlay'
+  | 'live';
 
 export type ShortcutState = Record<ShortcutId, ShortcutStatus>;
 
@@ -48,6 +50,7 @@ export interface SystemStatus {
   appVersion: string;
   electronVersion: string;
   microphonePermission: PermissionState;
+  systemAudio: SystemAudioSupport;
   accessibilityTrusted: boolean | null;
   insertion: InsertionSupport;
   shortcuts: ShortcutState;
@@ -140,6 +143,15 @@ export interface OverlayState extends DictationState {
   animate: boolean;
   /** A read-aloud session the pill shows while dictation is idle, or null. */
   reading: OverlayReading | null;
+  /** A live transcript being recorded; shown while dictation is idle, ahead of reading. */
+  live: OverlayLive | null;
+}
+
+/** The part of a live session the overlay draws. */
+export interface OverlayLive {
+  source: LiveSource;
+  startedAt: number;
+  level: number;
 }
 
 /** The part of a read-aloud session the overlay draws. */
@@ -169,7 +181,9 @@ export type OverlayAction =
         | 'open-audio'
         | 'read-pause'
         | 'read-resume'
-        | 'read-stop';
+        | 'read-stop'
+        | 'live-stop'
+        | 'live-cancel';
     }
   | { type: 'select-microphone'; id: string }
   | { type: 'select-model'; id: string };
@@ -189,6 +203,7 @@ export type AppMenuCommand =
   | 'file.run-setup'
   | 'file.quit'
   | 'view.dictation'
+  | 'view.live'
   | 'view.history'
   | 'view.read-aloud'
   | 'view.models'
@@ -202,6 +217,7 @@ export type AppCommand =
   | 'dictation:stop'
   | 'dictation:cancel'
   | 'navigate:dictation'
+  | 'navigate:live'
   | 'navigate:history'
   | 'navigate:read-aloud'
   | 'navigate:models'

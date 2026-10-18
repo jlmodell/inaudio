@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@renderer/components/ui/alert-dialog';
 import { Button } from '@renderer/components/ui/button';
 import { EmptyState } from '@renderer/components/ui/empty-state';
 import { IconButton } from '@renderer/components/ui/icon-button';
-import { PageHeader } from '@renderer/components/ui/layout';
+import { Badge, PageHeader } from '@renderer/components/ui/layout';
 import { api } from '@renderer/lib/api';
 import { formatDuration, formatWhen } from '@renderer/lib/format';
 import { keys, useHistory, useSettings } from '@renderer/lib/queries';
@@ -64,8 +64,13 @@ export function HistoryPage() {
         {data?.items.map((item) => (
           <li key={item.id} className="group grid gap-1.5 py-4">
             <div className="flex items-center justify-between gap-4 text-xs text-faint">
-              <span>
-                {formatWhen(item.createdAt)} · {formatDuration(item.durationMs)} · {MODEL_CATALOG[item.modelId as keyof typeof MODEL_CATALOG]?.name ?? item.modelId}
+              <span className="flex min-w-0 items-center gap-2">
+                {item.source !== 'microphone' && (
+                  <Badge tone="accent">{item.source === 'system' ? 'System audio' : 'System + microphone'}</Badge>
+                )}
+                <span className="truncate">
+                  {formatWhen(item.createdAt)} · {formatDuration(item.durationMs)} · {MODEL_CATALOG[item.modelId as keyof typeof MODEL_CATALOG]?.name ?? item.modelId}
+                </span>
               </span>
               <span className="flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                 <IconButton label="Copy" size="icon-sm" onClick={() => void api.text.copy(item.text)}>

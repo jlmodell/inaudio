@@ -13,6 +13,7 @@ const EMPTY: ShortcutState = {
   readAloudStop: OFF,
   cancel: OFF,
   overlay: OFF,
+  live: OFF,
 };
 
 /**
@@ -31,6 +32,7 @@ export class ShortcutService {
       readAloudStop(): void;
       cancel(): void;
       overlay(): void;
+      live(): void;
     },
   ) {}
 
@@ -43,6 +45,7 @@ export class ShortcutService {
       readAloudStop: this.register(settings.tts.stopShortcut, this.handlers.readAloudStop),
       cancel: this.register(settings.dictation.cancelShortcut, this.handlers.cancel),
       overlay: this.register(settings.overlay.toggleShortcut, this.handlers.overlay),
+      live: this.register(settings.live.shortcut, this.handlers.live),
     };
     return this.state;
   }

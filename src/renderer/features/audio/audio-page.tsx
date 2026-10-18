@@ -11,6 +11,7 @@ import { LevelMeter } from '@renderer/features/dictation/level-meter';
 import { errorMessage } from '@renderer/lib/api';
 import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
 import { useDictation } from '@renderer/stores/dictation-store';
+import { SystemAudioSection } from './system-audio-section';
 import { useMediaDevices } from './use-devices';
 
 function useMicTest(deviceId: string, gain: number) {
@@ -74,7 +75,7 @@ export function AudioPage() {
 
   return (
     <div>
-      <PageHeader title="Audio" description="Pick the microphone used for dictation and the speaker used for Read Aloud." />
+      <PageHeader title="Audio" description="Pick the microphone used for dictation, the speaker used for Read Aloud, and how Live transcript records system audio." />
       {permission.tone === 'danger' && (
         <div className="pb-6">
           <Notice tone="danger">Microphone access is blocked. Allow Inaudio in your system privacy settings, then restart the app.</Notice>
@@ -147,6 +148,11 @@ export function AudioPage() {
           </div>
         </Row>
       </Section>
+      <SystemAudioSection
+        live={settings.live}
+        support={status.systemAudio}
+        onChange={(live) => update.mutate({ live })}
+      />
     </div>
   );
 }

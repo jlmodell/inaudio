@@ -11,6 +11,7 @@ import { queryClient, keys } from '@renderer/lib/queries';
 import type { Settings } from '@shared/domain/settings';
 import { playCue } from '@renderer/features/dictation/audio/cues';
 import { Recorder, TARGET_RATE, trimSilence } from '@renderer/features/dictation/audio/recorder';
+import { useLive } from '@renderer/features/live/live-store';
 
 const MIN_SPEECH_MS = 250;
 const MAX_RECORDING_MS = 10 * 60 * 1000;
@@ -38,6 +39,11 @@ let afterStart: 'stop' | 'cancel' | null = null;
 
 function settings(): Settings | undefined {
   return queryClient.getQueryData<Settings>(keys.settings);
+}
+
+/** Cues stay silent while a live transcript records system audio, or they would be transcribed. */
+function cues(current: Settings | undefined): boolean {
+  return !!current?.dictation.playCues && useLive.getState().live.phase !== 'capturing';
 }
 
 /** The cached install state of a model, or undefined before the first status arrives. */
@@ -110,7 +116,7 @@ export const useDictation = create<DictationState>((set, get) => {
           gain: current.audio.inputGain,
           onLevel: (level) => set({ level }),
         });
-        if (current.dictation.playCues) void playCue('start', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });
+        if (cues(current)) void playCue('start', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });
         setPhase('listening', { startedAt: Date.now(), message: null, level: 0 });
         startLevelReports();
         limitTimer = setTimeout(() => void get().stop(), MAX_RECORDING_MS);
@@ -143,7 +149,7 @@ export const useDictation = create<DictationState>((set, get) => {
       stopLevelReports();
       const current = settings();
       const raw = await recorder.stop();
-      if (current?.dictation.playCues) void playCue('stop', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });
+      if (current && cues(current)) void playCue('stop', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });
       const samples = trimSilence(raw);
       if ((samples.length / TARGET_RATE) * 1000 < MIN_SPEECH_MS) {
         setPhase('idle', { level: 0, startedAt: null, message: 'No speech detected.' });
@@ -160,7 +166,7 @@ export const useDictation = create<DictationState>((set, get) => {
             : null;
         setPhase('idle', { last: result.transcript, lastText: result.text, message });
       } catch (error) {
-        if (current?.dictation.playCues) void playCue('error', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });
+        if (current && cues(current)) void playCue('error', { volume: current.dictation.cueVolume, outputDeviceId: current.audio.outputDeviceId });
         setPhase('error', { message: errorMessage(error) });
       }
     },

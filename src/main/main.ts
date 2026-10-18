@@ -4,6 +4,7 @@ import type { AppCommand } from '@shared/domain/system';
 import { DEFAULT_SETTINGS } from '@shared/domain/settings';
 import { EVENTS } from '@shared/ipc/channels';
 import { appPaths } from './app/paths';
+import { LINUX_LOOPBACK_FEATURE } from './app/platform';
 import { registerIpc } from './ipc/register';
 import { handleAppScheme, registerAppScheme } from './security/app-protocol';
 import { applySessionPolicy } from './security/hardening';
@@ -15,6 +16,9 @@ import { createMainWindow } from './windows/main-window';
 import { createCompanionWindow } from './windows/companion-window';
 
 app.setName('Inaudio');
+// Chromium 152 ships PulseAudio loopback for screen share disabled; live transcripts need it.
+// Feature switches are read once at startup, so this has to run before the app is ready.
+if (process.platform === 'linux') app.commandLine.appendSwitch('enable-features', LINUX_LOOPBACK_FEATURE);
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -62,7 +66,11 @@ function bootstrap(): void {
   function openWindow(): BrowserWindow {
     const win = createMainWindow();
     registerSurface(win.webContents, 'main');
-    win.webContents.on('did-finish-load', () => services?.readAloud.rendererReset());
+    win.webContents.on('did-finish-load', () => {
+      services?.readAloud.rendererReset();
+      services?.live.rendererGone();
+    });
+    win.webContents.on('render-process-gone', () => services?.live.rendererGone());
     win.on('close', (event) => {
       if (!quitting && services?.settings.get().system.closeToTray) {
         event.preventDefault();
@@ -72,6 +80,7 @@ function bootstrap(): void {
     });
     win.on('closed', () => {
       if (mainWindow === win) mainWindow = null;
+      services?.live.rendererGone();
     });
     const emitWindowStatus = () => send(EVENTS.statusChanged);
     win.on('maximize', emitWindowStatus);
@@ -108,6 +117,7 @@ function bootstrap(): void {
       pauseReading: () => services?.readAloud.pause(),
       resumeReading: () => services?.readAloud.resume(),
       stopReading: () => services?.readAloud.stop(),
+      toggleLive: () => services?.live.toggle(),
       openSettings: () => {
         showWindow();
         command('navigate:settings');
@@ -147,6 +157,7 @@ function bootstrap(): void {
       const current = services?.settings.get();
       if (current) services?.updateSettings({ overlay: { enabled: !current.overlay.enabled } });
     },
+    live: () => services?.live.toggle(),
   });
 
   app.on('second-instance', showWindow);
@@ -228,7 +239,8 @@ function bootstrap(): void {
         next.tts.shortcut !== previous.tts.shortcut ||
         next.tts.pauseShortcut !== previous.tts.pauseShortcut ||
         next.tts.stopShortcut !== previous.tts.stopShortcut ||
-        next.overlay.toggleShortcut !== previous.overlay.toggleShortcut
+        next.overlay.toggleShortcut !== previous.overlay.toggleShortcut ||
+        next.live.shortcut !== previous.live.shortcut
       ) {
         shortcuts.apply(next);
       }
@@ -238,7 +250,8 @@ function bootstrap(): void {
       if (JSON.stringify(next.overlay) !== JSON.stringify(previous.overlay)) s.overlay.sync();
       if (
         JSON.stringify(next.tray) !== JSON.stringify(previous.tray) ||
-        JSON.stringify(next.companion) !== JSON.stringify(previous.companion)
+        JSON.stringify(next.companion) !== JSON.stringify(previous.companion) ||
+        next.live.shortcut !== previous.live.shortcut
       ) tray.apply(next);
       send(EVENTS.settingsChanged, next);
     });
@@ -250,7 +263,10 @@ function bootstrap(): void {
     });
 
     // Audio devices do not survive a sleep, so a recording in flight is abandoned.
-    powerMonitor.on('suspend', () => s.dictation.interrupt());
+    powerMonitor.on('suspend', () => {
+      s.dictation.interrupt();
+      s.live.interrupt();
+    });
     powerMonitor.on('resume', () => s.companion.react('system.resume', 'ready'));
     powerMonitor.on('on-battery', () => send(EVENTS.statusChanged));
     powerMonitor.on('on-ac', () => send(EVENTS.statusChanged));

@@ -19,6 +19,10 @@ export function surfaceOf(event: IpcMainInvokeEvent | IpcMainEvent): Surface | n
   return surfaces.get(event.sender.id) ?? null;
 }
 
+export function surfaceOfContents(contents: WebContents): Surface | null {
+  return surfaces.get(contents.id) ?? null;
+}
+
 /** Throws unless the sender is a trusted top-level frame in the expected window. */
 export function assertSurface(
   event: IpcMainInvokeEvent | IpcMainEvent,

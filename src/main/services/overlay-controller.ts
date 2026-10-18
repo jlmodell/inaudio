@@ -1,7 +1,7 @@
 import { screen, type BrowserWindow, type Display } from 'electron';
 import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
 import type { Settings } from '@shared/domain/settings';
-import type { AudioDevice, DictationState, OverlayReading, OverlayState } from '@shared/domain/system';
+import type { AudioDevice, DictationState, OverlayLive, OverlayReading, OverlayState } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
 import { isWayland, overlaySupport } from '../app/platform';
 import { registerSurface } from '../security/surfaces';
@@ -34,6 +34,7 @@ export class OverlayController {
   private disposed = false;
   private dictation: DictationState = { phase: 'idle', startedAt: 0, level: 0, message: '' };
   private reading: OverlayReading | null = null;
+  private live: OverlayLive | null = null;
   private readonly onDisplayChange = () => this.place();
 
   constructor(private readonly options: OverlayOptions) {
@@ -86,6 +87,25 @@ export class OverlayController {
       this.menu = false;
     }
     this.sync();
+  }
+
+  /** A live transcript being recorded, or null once it stops. */
+  setLive(live: OverlayLive | null): void {
+    const same = !!live === !!this.live && live?.startedAt === this.live?.startedAt && live?.source === this.live?.source;
+    this.live = live;
+    if (same || this.disposed) return;
+    if (!live && this.dictation.phase === 'idle' && !this.reading) {
+      this.hover = false;
+      this.menu = false;
+    }
+    this.sync();
+  }
+
+  /** Only the live meter moved. */
+  setLiveLevel(level: number): void {
+    if (!this.live || this.live.level === level) return;
+    this.live = { ...this.live, level };
+    if (!this.disposed && this.dictation.phase === 'idle') this.push();
   }
 
   phase(): DictationState['phase'] {
@@ -156,7 +176,8 @@ export class OverlayController {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
     const { overlay } = this.options.settings();
-    const wanted = overlay.visibility === 'always' || this.dictation.phase !== 'idle' || this.reading !== null;
+    const wanted =
+      overlay.visibility === 'always' || this.dictation.phase !== 'idle' || this.reading !== null || this.live !== null;
     if (wanted === win.isVisible()) {
       if (wanted) win.moveTop();
       return;
@@ -232,8 +253,9 @@ export class OverlayController {
       menuOpen: this.menu,
       devices: this.options.devices().length,
       language: MODEL_CATALOG[settings.stt.modelId].languages.length > 1,
+      live: this.dictation.phase === 'idle' && this.live !== null,
       reading:
-        this.dictation.phase === 'idle' && this.reading
+        this.dictation.phase === 'idle' && !this.live && this.reading
           ? { message: this.reading.status === 'error' && this.reading.message !== '' }
           : null,
     };
@@ -288,6 +310,7 @@ export class OverlayController {
       modelId: settings.stt.modelId,
       animate: appearance.animations === 'full',
       reading: this.reading,
+      live: this.live,
     };
   }
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { liveSourceSchema } from './capture';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema } from './models';
 import {
   DEFAULT_COMPANION_SETTINGS,
@@ -204,6 +205,16 @@ export const settingsSchema = z.object({
     showMicrophones: z.boolean(),
     notifications: z.boolean(),
   }),
+  live: z.object({
+    source: liveSourceSchema,
+    systemGain: z.number().min(0.5).max(2),
+    micGain: z.number().min(0).max(2),
+    /** Pause Read Aloud when a session starts, so Inaudio's own voice is not transcribed. */
+    pauseReadAloud: z.boolean(),
+    /** The user has read the notice about recording other people and asked not to see it again. */
+    consentAcknowledged: z.boolean(),
+    shortcut: optionalAcceleratorSchema,
+  }),
   system: z.object({
     launchAtLogin: z.boolean(),
     closeToTray: z.boolean(),
@@ -228,6 +239,7 @@ const GROUP_KEYS = [
   'tts',
   'overlay',
   'tray',
+  'live',
   'system',
   'updates',
   'companion',
@@ -293,6 +305,14 @@ export const DEFAULT_SETTINGS: Settings = {
     showMicrophones: true,
     notifications: false,
   },
+  live: {
+    source: 'system',
+    systemGain: 1,
+    micGain: 1,
+    pauseReadAloud: true,
+    consentAcknowledged: false,
+    shortcut: '',
+  },
   system: { launchAtLogin: false, closeToTray: true, autoUnload: true, idleMinutes: 10 },
   updates: { checkAutomatically: true, downloadAutomatically: true },
   companion: DEFAULT_COMPANION_SETTINGS,
@@ -311,6 +331,7 @@ export const settingsPatchSchema = z
     tts: settingsSchema.shape.tts.partial().strict().optional(),
     overlay: settingsSchema.shape.overlay.partial().strict().optional(),
     tray: settingsSchema.shape.tray.partial().strict().optional(),
+    live: settingsSchema.shape.live.partial().strict().optional(),
     system: settingsSchema.shape.system.partial().strict().optional(),
     updates: settingsSchema.shape.updates.partial().strict().optional(),
     companion: companionSettingsPatchSchema.optional(),
@@ -330,6 +351,7 @@ export function mergeSettings(base: Settings, patch: SettingsPatch): Settings {
     tts: { ...base.tts, ...patch.tts },
     overlay: { ...base.overlay, ...patch.overlay },
     tray: { ...base.tray, ...patch.tray },
+    live: { ...base.live, ...patch.live },
     system: { ...base.system, ...patch.system },
     updates: { ...base.updates, ...patch.updates },
     companion: {

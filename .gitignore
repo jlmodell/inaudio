@@ -90,3 +90,6 @@ typings/
 
 # Electron-Forge
 out/
+
+# Local design mockups and their renders; never committed
+design-previews/

@@ -9,6 +9,8 @@ import { AudioPage } from '@renderer/features/audio/audio-page';
 import { useReportInputDevices } from '@renderer/features/audio/use-devices';
 import { DictationPage } from '@renderer/features/dictation/dictation-page';
 import { HistoryPage } from '@renderer/features/history/history-page';
+import { LivePage } from '@renderer/features/live/live-page';
+import { connectLive } from '@renderer/features/live/live-store';
 import { ModelsPage } from '@renderer/features/models/models-page';
 import { ReadAloudPage } from '@renderer/features/read-aloud/read-aloud-page';
 import { connectReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
@@ -19,6 +21,7 @@ import { CompanionPage } from '@renderer/features/companion/companion-page';
 
 const PAGES: Record<Route, ComponentType> = {
   dictation: DictationPage,
+  live: LivePage,
   history: HistoryPage,
   'read-aloud': ReadAloudPage,
   models: ModelsPage,
@@ -57,6 +60,7 @@ function useMainEvents() {
       }),
       api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })), 
       connectReadAloud(),
+      connectLive(),
     ];
     return () => offs.forEach((off) => off());
   }, [client, navigate]);

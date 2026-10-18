@@ -7,26 +7,7 @@ import {
   type HistoryQuery,
   type Transcript,
 } from '@shared/domain/history';
-
-const MIGRATIONS = [
-  `CREATE TABLE transcripts (
-     id TEXT PRIMARY KEY,
-     text TEXT NOT NULL CHECK (length(text) <= 20000),
-     model_id TEXT NOT NULL,
-     duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
-     inference_ms INTEGER NOT NULL CHECK (inference_ms >= 0),
-     language TEXT NOT NULL DEFAULT '',
-     created_at INTEGER NOT NULL
-   ) STRICT;
-   CREATE INDEX transcripts_created_at ON transcripts (created_at DESC);
-   CREATE VIRTUAL TABLE transcripts_fts USING fts5(text, content='transcripts', content_rowid='rowid');
-   CREATE TRIGGER transcripts_ai AFTER INSERT ON transcripts BEGIN
-     INSERT INTO transcripts_fts(rowid, text) VALUES (new.rowid, new.text);
-   END;
-   CREATE TRIGGER transcripts_ad AFTER DELETE ON transcripts BEGIN
-     INSERT INTO transcripts_fts(transcripts_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
-   END;`,
-];
+import { MIGRATIONS } from './history-migrations';
 
 /**
  * Turns free text into an FTS5 prefix query. Each token is quoted, so user
@@ -52,6 +33,7 @@ function toTranscript(row: Record<string, unknown>): Transcript {
     inferenceMs: row.inference_ms,
     language: row.language,
     createdAt: row.created_at,
+    source: row.source,
   });
 }
 
@@ -91,8 +73,8 @@ export class HistoryRepository {
     this.migrate();
     this.stmts = {
       insert: this.db.prepare(
-        `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at)
-         VALUES (@id, @text, @model_id, @duration_ms, @inference_ms, @language, @created_at)`,
+        `INSERT INTO transcripts (id, text, model_id, duration_ms, inference_ms, language, created_at, source)
+         VALUES (@id, @text, @model_id, @duration_ms, @inference_ms, @language, @created_at, @source)`,
       ),
       remove: this.db.prepare('DELETE FROM transcripts WHERE id = ?'),
       clear: this.db.prepare('DELETE FROM transcripts'),
@@ -124,6 +106,7 @@ export class HistoryRepository {
       inference_ms: t.inferenceMs,
       language: t.language,
       created_at: t.createdAt,
+      source: t.source,
     });
   }
 
