@@ -28,8 +28,13 @@
 ## Settings
 - Settings is a route with its own sidebar (`SettingsSidebar`, swapped in by `AppShell`): "Back to Inaudio" returns to `useUi().previousRoute`. Categories and the search index live in `features/settings/settings-nav.ts`; `openSettings(category, focusId)` opens a page and scrolls to a setting. Each section in `settings-page.tsx` renders only on its category.
 
+## Onboarding
+- Setup is a non-dismissible `Billboard` (`components/ui/billboard.tsx`) over `<AppShell backdrop>`, which is inert and always shows the app sidebar without window controls; setup draws its own minimize and close. Hero scenes in `features/tour/hero-scenes.tsx` animate with `transform` only (Tailwind v4 centers with the `translate` property) and stop under reduced or off motion.
+
 ## Updates
 - Update progress is pushed (`EVENTS.updateState` → query `['update']`). Release notes are converted from HTML to plain text in main (`src/shared/update/notes.ts`); never render release HTML. The title bar `UpdateIndicator` and the Updates hero card show only while `updates.checkAutomatically` is on.
+- Live release notes: `ReleaseNotesService` (main) fetches `api.github.com/repos/shikki841/inaudio/releases` on its own session partition that allows only that URL; Markdown becomes plain `ReleaseBlock`s in `src/shared/update/release-markdown.ts` and is never rendered as HTML. Main fetches on its own only while `updates.checkAutomatically` is on; otherwise it returns `paused` until the user asks (`force`). Short highlights go in the `WhatsNewBillboard`; full notes go in `ReleaseNotesDrawer`.
+- The what's-new billboard opens once per `appVersion` (`announcements.seenVersion`), after onboarding, never while dictation or live capture runs, and not at all when `announcements.whatsNew` is off. Finishing setup marks the current version seen.
 - `electron-updater` reads `resources/app-update.yml` for feed, cache dir, and signature config; Forge ships it via `extraResource` in `forge.config.ts` from `assets/app-update.yml`. `scripts/build-release.mjs` fails the release if the electron-builder output lacks an update manifest. Keep `assets/app-update.yml` in sync with the GitHub `shikki841/inaudio` feed if the repo moves.
 
 ## Performance rules

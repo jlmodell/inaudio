@@ -30,6 +30,7 @@ export const EXTERNAL_LINKS = {
   nemotron: 'https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b',
   kokoro: 'https://huggingface.co/hexgrad/Kokoro-82M',
   sherpaOnnx: 'https://github.com/k2-fsa/sherpa-onnx',
+  releases: 'https://github.com/shikki841/inaudio/releases',
 } as const;
 export type ExternalLinkId = keyof typeof EXTERNAL_LINKS;
 
@@ -186,6 +187,7 @@ export const schemas = {
   ]),
   historyQuery: historyQuerySchema,
   historyId: z.string().uuid(),
+  releaseNotes: z.object({ force: z.boolean() }).strict(),
   historyUpdate: z.object({ id: z.string().uuid(), patch: historyUpdateSchema }).strict(),
   // Ids, or a whole view. Never a path: the user picks the file in the native save dialog.
   historyExport: z

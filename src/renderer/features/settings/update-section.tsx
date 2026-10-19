@@ -1,6 +1,9 @@
 import { AlertTriangle, ArrowDownToLine, CheckCircle2, Download, Loader2, RefreshCw, RotateCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Settings } from '@shared/domain/settings';
+import { fetchedAgo, ReleaseBlocks, releaseDate } from '@renderer/features/tour/whats-new';
+import { useReleaseNotes } from '@renderer/lib/queries';
+import { useUi } from '@renderer/stores/ui-store';
 import type { UpdateStatus } from '@shared/domain/update';
 import { LogoMark } from '@renderer/components/brand/logo';
 import { Button } from '@renderer/components/ui/button';
@@ -18,12 +21,6 @@ function when(epochMs: number | undefined): string {
   const today = new Date();
   const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return date.toDateString() === today.toDateString() ? `Today at ${time}` : `${date.toLocaleDateString()} at ${time}`;
-}
-
-function released(date: string | undefined): string {
-  if (!date) return '';
-  const parsed = new Date(date);
-  return Number.isNaN(parsed.getTime()) ? '' : `Released ${parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}`;
 }
 
 function remaining(status: UpdateStatus): string {
@@ -160,36 +157,79 @@ function UpdateHero({ status, actions }: { status: UpdateStatus; actions: Action
   );
 }
 
+/**
+ * What's new, live from GitHub: the release on its way if there is one, else the installed
+ * one. A preview here; the whole history opens in the release notes drawer.
+ */
+function LiveNotes({ status }: { status: UpdateStatus }) {
+  const notes = useReleaseNotes();
+  const openNotes = useUi((s) => s.setReleaseNotes);
+  const target = status.availableVersion && status.availableVersion !== status.currentVersion ? status.availableVersion : status.currentVersion;
+  const note = notes.data?.releases.find((release) => release.version === target);
+  const fallback = !note && target === status.availableVersion ? status.releaseNotes : undefined;
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="m-0 text-sm font-semibold tracking-wide text-faint uppercase">What’s new in {target}</h3>
+        <span className="text-xs text-faint">
+          {notes.load.isPending || notes.isFetching
+            ? 'Checking GitHub…'
+            : notes.data?.fetchedAt
+              ? `From GitHub · ${fetchedAgo(notes.data.fetchedAt)}`
+              : ''}
+        </span>
+      </div>
+      {note ? (
+        <>
+          <ReleaseBlocks blocks={note.blocks} limit={8} />
+          {releaseDate(note) && <span className="text-xs text-faint">Released {releaseDate(note)}</span>}
+        </>
+      ) : fallback ? (
+        <p data-selectable className="m-0 text-sm leading-relaxed whitespace-pre-wrap">
+          {fallback}
+        </p>
+      ) : notes.data?.error ? (
+        <Notice tone="warning">{notes.data.error}</Notice>
+      ) : notes.isLoading ? (
+        <p className="m-0 text-sm text-muted">Loading release notes…</p>
+      ) : (
+        <p className="m-0 text-sm text-muted">No release notes for {target} yet.</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => openNotes(true)}>
+          Read all release notes
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => notes.load.mutate()} disabled={notes.load.isPending}>
+          <RefreshCw className={notes.load.isPending ? 'animate-spin' : undefined} /> Refresh
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function UpdateSection({
   status,
   updates,
+  announcements,
   actions,
   onChange,
+  onAnnouncements,
 }: {
   status: UpdateStatus | undefined;
   updates: Settings['updates'];
+  announcements: Settings['announcements'];
   actions: Actions;
   onChange(patch: Partial<Settings['updates']>): void;
+  onAnnouncements(patch: Partial<Settings['announcements']>): void;
 }) {
-  const notes = status?.releaseNotes;
-  const next = status?.availableVersion;
-  const showNotes = updates.checkAutomatically && notes && next && next !== status?.currentVersion;
+  const showWhatsNew = useUi((s) => s.setWhatsNew);
+  const openNotes = useUi((s) => s.setReleaseNotes);
   return (
     <Section id="settings-updates">
       {updates.checkAutomatically && status && (
         <div className="grid gap-5 pb-5">
           <UpdateHero status={status} actions={actions} />
-          {showNotes && (
-            <div className="grid gap-2">
-              <h3 className="text-sm font-semibold tracking-wide text-faint uppercase">
-                {status.releaseName && status.releaseName !== next ? status.releaseName : `What’s new in ${next}`}
-              </h3>
-              <p data-selectable className="m-0 text-sm leading-relaxed whitespace-pre-wrap">
-                {notes}
-              </p>
-              {released(status.releaseDate) && <span className="text-xs text-faint">{released(status.releaseDate)}</span>}
-            </div>
-          )}
+          <LiveNotes status={status} />
         </div>
       )}
       {!updates.checkAutomatically && (
@@ -218,7 +258,7 @@ export function UpdateSection({
           </Button>
         ) : status?.state === 'available' && !updates.checkAutomatically ? (
           <Button size="sm" onClick={() => actions.download.mutate()} disabled={actions.download.isPending}>
-            <Download /> Download {next}
+            <Download /> Download {status.availableVersion}
           </Button>
         ) : (
           <Button
@@ -231,7 +271,27 @@ export function UpdateSection({
           </Button>
         )}
       </Row>
-      <Row label="Current version" description={`Inaudio ${status?.currentVersion ?? ''}`.trim()} />
+      <Row
+        id="settings-whats-new"
+        label="Show what’s new after an update"
+        description="Once per version, at a quiet moment, never while you dictate or record."
+      >
+        <Button size="sm" variant="ghost" onClick={() => showWhatsNew(true)}>
+          Show now
+        </Button>
+        <Switch
+          aria-label="Show what’s new after an update"
+          checked={announcements.whatsNew}
+          onCheckedChange={(whatsNew) => onAnnouncements({ whatsNew })}
+        />
+      </Row>
+      <Row label="Current version" description={`Inaudio ${status?.currentVersion ?? ''}`.trim()}>
+        {!updates.checkAutomatically && (
+          <Button size="sm" variant="ghost" onClick={() => openNotes(true)}>
+            Release notes
+          </Button>
+        )}
+      </Row>
     </Section>
   );
 }

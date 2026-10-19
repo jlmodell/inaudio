@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight, Check, Mic } from 'lucide-react';
+import { Check, Mic, Minus, X } from 'lucide-react';
 import { useState } from 'react';
-import { LogoMark } from '@renderer/components/brand/logo';
+import { AppShell } from '@renderer/components/shell/app-shell';
+import { Billboard, StepDots } from '@renderer/components/ui/billboard';
 import { Button } from '@renderer/components/ui/button';
 import type { LiveSource } from '@shared/domain/capture';
 import { Badge, Notice, Row } from '@renderer/components/ui/layout';
@@ -8,18 +9,17 @@ import { RadioGroup } from '@renderer/components/ui/radio-group';
 import { Select } from '@renderer/components/ui/select';
 import { Switch } from '@renderer/components/ui/switch';
 import { useMediaDevices } from '@renderer/features/audio/use-devices';
+import { DictationPage } from '@renderer/features/dictation/dictation-page';
+import { LiveScene, MicrophoneScene, ModelsScene, OverlayScene, WelcomeScene } from '@renderer/features/tour/hero-scenes';
 import { Recorder } from '@renderer/features/dictation/audio/recorder';
 import { LevelMeter } from '@renderer/features/dictation/level-meter';
 import { ModelRow } from '@renderer/features/models/model-row';
 import { useModelStatuses } from '@renderer/features/models/use-model-statuses';
 import { OverlaySettings } from '@renderer/features/settings/overlay-settings';
 import { ShortcutInput } from '@renderer/features/settings/shortcut-input';
-import { errorMessage } from '@renderer/lib/api';
-import { cn } from '@renderer/lib/cn';
+import { api, errorMessage } from '@renderer/lib/api';
 import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
 
-const STEPS = ['Welcome', 'Microphone', 'Models', 'Live transcript', 'Overlay'] as const;
-const OVERLAY_STEP = STEPS.indexOf('Overlay');
 
 function MicrophoneStep() {
   const [level, setLevel] = useState(0);
@@ -45,7 +45,6 @@ function MicrophoneStep() {
 
   return (
     <div className="grid gap-6">
-      <p className="text-muted">Inaudio needs microphone access. Audio is processed on this computer and never uploaded.</p>
       <div className="flex items-center gap-4">
         <Button variant="primary" onClick={() => void test()} disabled={state === 'testing'}>
           <Mic /> {state === 'testing' ? 'Say something…' : state === 'ok' ? 'Test again' : 'Allow and test'}
@@ -65,7 +64,6 @@ function ModelsStep() {
   if (!settings) return null;
   return (
     <div className="grid gap-2">
-      <p className="text-muted">Download a speech model once; it then works offline. Read Aloud is optional.</p>
       <div className="divide-y divide-line">
         {models.map((m) => (
           <ModelRow
@@ -99,11 +97,7 @@ function LiveStep() {
   ];
   return (
     <div className="grid gap-5">
-      <div className="flex items-start justify-between gap-4">
-        <p className="m-0 text-muted">
-          Transcribe what this computer plays, like a meeting or a video. Audio stays here and is never saved. Pick how it
-          should work; you can change it any time.
-        </p>
+      <div className="flex">
         <Badge tone={support.available ? 'success' : 'warning'} className="shrink-0">
           {support.available ? (support.mode === 'system-picker' ? 'Asks for a screen each time' : 'System audio supported') : 'Audio device only'}
         </Badge>
@@ -178,11 +172,6 @@ function OverlayStep() {
   if (!settings || !status) return null;
   return (
     <div className="grid gap-6">
-      <p className="text-muted">
-        A small pill sits at the edge of the screen while you dictate, showing whether Inaudio is
-        listening and offering the controls you reach for. You can change any of this later in
-        Settings.
-      </p>
       <div className="divide-y divide-line">
         <OverlaySettings
           compact
@@ -197,6 +186,49 @@ function OverlayStep() {
   );
 }
 
+const STEPS = [
+  {
+    id: 'welcome',
+    title: 'Talk instead of typing.',
+    description: 'Inaudio turns speech into text in any app and reads text back to you. Everything runs on this computer: no account, no cloud.',
+    hero: <WelcomeScene />,
+    body: null,
+  },
+  {
+    id: 'microphone',
+    title: 'Check your microphone',
+    description: 'Inaudio needs microphone access. Audio is processed on this computer and never uploaded.',
+    hero: <MicrophoneScene />,
+    body: <MicrophoneStep />,
+  },
+  {
+    id: 'models',
+    title: 'Download a speech model',
+    description: 'Download a speech model once; it then works offline. Read Aloud is optional.',
+    hero: <ModelsScene />,
+    body: <ModelsStep />,
+  },
+  {
+    id: 'live',
+    title: 'Transcribe what your computer plays',
+    description: 'Meetings, videos, lectures. Audio stays on this computer and is never saved. You can change any of this later.',
+    hero: <LiveScene />,
+    body: <LiveStep />,
+  },
+  {
+    id: 'overlay',
+    title: 'A small pill shows what is happening',
+    description: 'It sits at the edge of the screen while you dictate, showing whether Inaudio is listening and the controls you reach for.',
+    hero: <OverlayScene />,
+    body: <OverlayStep />,
+  },
+] as const;
+
+/**
+ * Setup runs as a billboard over the app itself: the workspace waits, dimmed, underneath,
+ * and each step leads with a small animation of what it sets up. The window can still be
+ * minimized or closed; nothing else outside the steps reacts until setup is done.
+ */
 export function SetupFlow() {
   const [step, setStep] = useState(0);
   const update = useUpdateSettings();
@@ -204,57 +236,67 @@ export function SetupFlow() {
   const { data: settings } = useSettings();
   const sttReady = status?.models.some((m) => m.id === settings?.stt.modelId && m.state === 'installed');
   const last = step === STEPS.length - 1;
+  const current = STEPS[step] ?? STEPS[0];
+  // Finishing setup also counts as having seen what is new in this version.
+  const finish = () => update.mutate({ onboardingComplete: true, announcements: { seenVersion: status?.appVersion ?? '' } });
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
-      <div className="drag h-11 shrink-0" />
-      <main className="mx-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-t-2xl bg-surface shadow-[0_0_0_1px_var(--line)]">
-        <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col px-10 pt-14 pb-10">
-          <ol className="flex gap-2 pb-12" aria-label="Setup progress">
-            {STEPS.map((name, i) => (
-              <li key={name} aria-current={i === step ? 'step' : undefined} className="grid flex-1 gap-2">
-                <span className={cn('h-1 rounded-full', i <= step ? 'bg-accent' : 'bg-line')} />
-                <span className={cn('text-xs', i === step ? 'text-ink' : 'text-faint')}>{name}</span>
-              </li>
-            ))}
-          </ol>
-
-          {step === 0 ? (
-            <div className="grid justify-items-start gap-6">
-              <span className="grid size-20 place-items-center rounded-[18px] border border-line bg-surface text-accent">
-                <LogoMark className="size-14" />
+    <>
+      <div inert aria-hidden className="h-full">
+        <AppShell backdrop>
+          <DictationPage />
+        </AppShell>
+      </div>
+      <div className="drag pointer-events-auto fixed inset-x-0 top-0 z-[60] flex h-11 items-center justify-end gap-1 px-3 [&>button]:no-drag">
+        <button
+          type="button"
+          aria-label="Minimize window"
+          onClick={() => void api.system.window('minimize')}
+          className="grid size-7 place-items-center rounded-[6px] text-white/80 hover:bg-white/15 hover:text-white"
+        >
+          <Minus className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Close window"
+          onClick={() => void api.system.window('close')}
+          className="grid size-7 place-items-center rounded-[6px] text-white/80 hover:bg-danger hover:text-white"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <Billboard
+        open
+        onOpenChange={() => undefined}
+        dismissible={false}
+        label="Set up Inaudio"
+        stepKey={current.id}
+        hero={current.hero}
+        title={current.title}
+        description={current.description}
+        footer={
+          <>
+            {!last && (
+              <button type="button" onClick={finish} className="rounded-[6px] px-1 text-[13px] text-faint hover:text-muted">
+                Skip setup
+              </button>
+            )}
+            <span className="flex-1" />
+            <span className="mr-2 flex items-center gap-2.5">
+              <span className="text-xs font-medium text-faint tabular-nums">
+                {step + 1} of {STEPS.length}
               </span>
-              <h1 className="text-3xl font-semibold tracking-tight">Talk instead of typing.</h1>
-              <p className="max-w-md text-base text-muted">
-                Inaudio turns speech into text in any app and reads text back to you. Everything runs on this computer: no account, no cloud.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              <h1 className="text-2xl font-semibold tracking-tight">{STEPS[step]}</h1>
-              {step === 1 && <MicrophoneStep />}
-              {step === 2 && <ModelsStep />}
-              {step === 3 && <LiveStep />}
-              {step === OVERLAY_STEP && <OverlayStep />}
-            </div>
-          )}
-
-          <div className="mt-auto flex items-center justify-between pt-12">
-            <Button variant="ghost" onClick={() => setStep((s) => s - 1)} className={cn(step === 0 && 'invisible')}>
-              <ArrowLeft /> Back
+              <StepDots count={STEPS.length} current={step} />
+            </span>
+            {step > 0 && <Button onClick={() => setStep((s) => s - 1)}>Back</Button>}
+            <Button variant="primary" onClick={() => (last ? finish() : setStep((s) => s + 1))}>
+              {last ? 'Start using Inaudio' : step === 0 ? 'Get started' : current.id === 'models' && !sttReady ? 'Later' : 'Continue'}
             </Button>
-            <div className="flex items-center gap-3">
-              {step === 2 && !sttReady && <span className="text-xs text-faint">You can download later from Models.</span>}
-              <Button
-                variant="primary"
-                onClick={() => (last ? update.mutate({ onboardingComplete: true }) : setStep((s) => s + 1))}
-              >
-                {last ? 'Start using Inaudio' : step === 0 ? 'Get started' : 'Continue'} <ArrowRight />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
+          </>
+        }
+      >
+        {current.body}
+      </Billboard>
+    </>
   );
 }

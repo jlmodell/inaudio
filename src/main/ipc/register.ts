@@ -12,6 +12,7 @@ import { EXTERNAL_LINKS, schemas } from '@shared/ipc/schemas';
 import { applyReplacements } from '@shared/text/replacements';
 import { openTrustedExternal } from '../security/hardening';
 import type { Services } from '../services/container';
+import { ReleaseNotesService } from '../services/release-notes';
 import { handle, handleOn, listen } from './handle';
 
 const none = z.undefined();
@@ -69,6 +70,12 @@ export function registerIpc(services: Services): void {
   handle(IPC.updateStatus, none, () => services.updater.get());
   handle(IPC.updateCheck, none, () => services.updater.check());
   handle(IPC.updateDownload, none, () => services.updater.download());
+  // What's new, live from GitHub. Never fetched behind the user's back when they turned
+  // automatic updates off; a click on "Load release notes" is the explicit ask.
+  const releaseNotes = new ReleaseNotesService();
+  handleOn('main', IPC.updateReleaseNotes, schemas.releaseNotes, ({ force }) =>
+    force || settings.get().updates.checkAutomatically ? releaseNotes.get(force) : { ...releaseNotes.cached(), paused: true },
+  );
   handle(IPC.updateInstall, none, () =>
     services.updater.install(async () => {
       await services.dispose();

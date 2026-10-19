@@ -286,6 +286,12 @@ export const settingsSchema = z.object({
     downloadAutomatically: z.boolean(),
   }),
   companion: companionSettingsSchema,
+  announcements: z.object({
+    /** Show the what's-new billboard once after an update. */
+    whatsNew: z.boolean(),
+    /** The version whose what's-new was last seen; empty before the first one. */
+    seenVersion: z.string().max(32).regex(/^$|^\d+\.\d+\.\d+[\w.+-]*$/),
+  }),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -304,6 +310,7 @@ const GROUP_KEYS = [
   'system',
   'updates',
   'companion',
+  'announcements',
 ] as const;
 type GroupKey = (typeof GROUP_KEYS)[number];
 
@@ -407,6 +414,7 @@ export const DEFAULT_SETTINGS: Settings = {
   system: { launchAtLogin: false, closeToTray: true, autoUnload: true, idleMinutes: 10 },
   updates: { checkAutomatically: true, downloadAutomatically: true },
   companion: DEFAULT_COMPANION_SETTINGS,
+  announcements: { whatsNew: true, seenVersion: '' },
 };
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -427,6 +435,7 @@ export const settingsPatchSchema = z
     system: settingsSchema.shape.system.partial().strict().optional(),
     updates: settingsSchema.shape.updates.partial().strict().optional(),
     companion: companionSettingsPatchSchema.optional(),
+    announcements: settingsSchema.shape.announcements.partial().strict().optional(),
   })
   .strict();
 
@@ -447,6 +456,7 @@ export function mergeSettings(base: Settings, patch: SettingsPatch): Settings {
     liveWindow: { ...base.liveWindow, ...patch.liveWindow },
     system: { ...base.system, ...patch.system },
     updates: { ...base.updates, ...patch.updates },
+    announcements: { ...base.announcements, ...patch.announcements },
     companion: {
       ...base.companion,
       ...patch.companion,

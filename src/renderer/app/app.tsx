@@ -16,6 +16,7 @@ import { ReadAloudPage } from '@renderer/features/read-aloud/read-aloud-page';
 import { connectReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
 import { SettingsPage } from '@renderer/features/settings/settings-page';
 import { SetupFlow } from '@renderer/features/setup/setup-flow';
+import { ReleaseNotesDrawer, useWhatsNewAfterUpdate, WhatsNewBillboard } from '@renderer/features/tour/whats-new';
 import { LogoMark } from '@renderer/components/brand/logo';
 import { CompanionPage } from '@renderer/features/companion/companion-page';
 
@@ -156,6 +157,18 @@ export function App() {
   return (
     <AppShell>
       <Page />
+      <Announcements />
     </AppShell>
+  );
+}
+
+/** What's new after an update, and the full release notes, available from anywhere. */
+function Announcements() {
+  useWhatsNewAfterUpdate();
+  return (
+    <>
+      <WhatsNewBillboard />
+      <ReleaseNotesDrawer />
+    </>
   );
 }

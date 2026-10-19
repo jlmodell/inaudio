@@ -515,8 +515,10 @@ export function SettingsPage() {
         <UpdateSection
           status={updateStatus}
           updates={settings.updates}
+          announcements={settings.announcements}
           actions={updateActions}
           onChange={(patch) => update.mutate({ updates: patch })}
+          onAnnouncements={(patch) => update.mutate({ announcements: patch })}
         />
       )}
 

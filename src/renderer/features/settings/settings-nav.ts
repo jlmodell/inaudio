@@ -105,6 +105,7 @@ export const SEARCH_ITEMS: { id: string; label: string; category: SettingsCatego
   { id: 'settings-performance', label: 'CPU threads', category: 'performance', keywords: 'cpu threads power battery' },
   { id: 'settings-unload', label: 'Unload models when idle', category: 'performance', keywords: 'memory ram free idle minutes' },
   { id: 'settings-app', label: 'Open at login and tray', category: 'app', keywords: 'login tray setup close quit' },
+  { id: 'settings-whats-new', label: 'Show what’s new after an update', category: 'updates', keywords: 'release notes announcement changelog tour' },
   { id: 'settings-updates', label: 'Updates', category: 'updates', keywords: 'update download install release rollout version automatic' },
   { id: 'settings-about', label: 'Version and data folder', category: 'about', keywords: 'version engine data folder models' },
 ];

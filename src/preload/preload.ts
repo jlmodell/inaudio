@@ -26,6 +26,7 @@ const api: InaudioApi = {
     check: () => ipcRenderer.invoke(IPC.updateCheck),
     download: () => ipcRenderer.invoke(IPC.updateDownload),
     install: () => ipcRenderer.invoke(IPC.updateInstall),
+    releaseNotes: (force) => ipcRenderer.invoke(IPC.updateReleaseNotes, { force }),
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

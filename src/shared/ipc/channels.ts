@@ -9,6 +9,7 @@ export const IPC = {
   updateCheck: 'update:check',
   updateDownload: 'update:download',
   updateInstall: 'update:install',
+  updateReleaseNotes: 'update:release-notes',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   modelsList: 'models:list',

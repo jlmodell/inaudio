@@ -34,6 +34,11 @@ interface UiState {
   /** The transcript open in the History drawer: an id, the newest one, or none. */
   transcript: string | 'latest' | null;
   openTranscript(id: string | 'latest' | null): void;
+  /** The what's-new billboard and the full release notes drawer. */
+  whatsNew: boolean;
+  setWhatsNew(open: boolean): void;
+  releaseNotes: boolean;
+  setReleaseNotes(open: boolean): void;
 }
 
 export const useUi = create<UiState>((set, get) => ({
@@ -53,4 +58,8 @@ export const useUi = create<UiState>((set, get) => ({
   clearSettingsFocus: () => set({ settingsFocus: null }),
   transcript: null,
   openTranscript: (transcript) => set({ transcript }),
+  whatsNew: false,
+  setWhatsNew: (whatsNew) => set({ whatsNew }),
+  releaseNotes: false,
+  setReleaseNotes: (releaseNotes) => set({ releaseNotes }),
 }));

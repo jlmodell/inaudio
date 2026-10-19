@@ -34,7 +34,7 @@ const MENUS: {
 ];
 
 /** Menus on the left, window controls on the right; everything between drags the window. */
-export function TitleBar() {
+export function TitleBar({ controls = true }: { controls?: boolean }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLElement>(null);
   const { data: status } = useSystemStatus();
@@ -86,7 +86,7 @@ export function TitleBar() {
         })}
       </nav>
 
-      <div className="no-drag flex items-center gap-1">
+      <div className={controls ? 'no-drag flex items-center gap-1' : 'invisible'}>
         <UpdateIndicator />
         <button
           type="button"

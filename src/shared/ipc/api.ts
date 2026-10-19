@@ -17,7 +17,7 @@ import type {
 } from '../domain/system';
 import type { ExternalLinkId } from './schemas';
 import type { CompanionGaze, CompanionId, CompanionSnapshot } from '../domain/companion';
-import type { UpdateStatus } from '../domain/update';
+import type { ReleaseNotesResult, UpdateStatus } from '../domain/update';
 import type {
   ReadAloudChunk,
   ReadAloudControl,
@@ -58,6 +58,11 @@ export interface InaudioApi {
     check(): Promise<UpdateStatus>;
     download(): Promise<UpdateStatus>;
     install(): Promise<void>;
+    /**
+     * Published release notes from GitHub. Fetched only while automatic updates are on, or
+     * when `force` says the user asked; otherwise the last list is returned, marked paused.
+     */
+    releaseNotes(force: boolean): Promise<ReleaseNotesResult>;
   };
   settings: {
     get(): Promise<Settings>;
