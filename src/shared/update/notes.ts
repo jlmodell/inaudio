@@ -32,7 +32,8 @@ function toText(html: string): string {
       .replace(/<li[^>]*>/gi, '\n• ')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|h[1-6]|ul|ol|pre|blockquote)>/gi, '\n\n')
-      .replace(/<[^>]*>/g, ''),
+      .replace(/<[^>]*>/g, '')
+      .replace(/[<>]/g, ''),
   )
     .split('\n')
     .map((line) => line.replace(/[ \t]+/g, ' ').trim())

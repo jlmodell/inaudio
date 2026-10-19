@@ -12,6 +12,11 @@ test('scripts, styles and stray markup never survive', () => {
   assert.equal(out, 'Safe <tag>');
 });
 
+test('markup nested to survive one pass is still removed', () => {
+  assert.equal(releaseNotesText('<scr<script>ipt>alert(1)</script>ok'), 'scrok');
+  assert.ok(!/[<>]/.test(releaseNotesText('<<b>script>x<</b>/script>')));
+});
+
 test('per-version notes are joined, empty ones skipped, and long notes capped', () => {
   assert.equal(releaseNotesText([{ version: '1.9.2', note: '<p>Fix</p>' }, { version: '1.9.1', note: null }]), '1.9.2\nFix');
   assert.equal(releaseNotesText(null), '');

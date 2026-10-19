@@ -29,6 +29,11 @@ test('links keep their words; images, html and other urls are dropped', () => {
   ]);
 });
 
+test('nested comments and tags leave no markup behind', () => {
+  const blocks = parseReleaseMarkdown('<!<!-- a -->-- hidden -->\n- one <scr<script>ipt>two\n- <<b>img src=x>three');
+  assert.ok(blocks.every((block) => !/[<>]/.test(block.text) && !block.text.includes('hidden')));
+});
+
 test('highlights skip chores and read like sentences', () => {
   assert.equal(highlight('feat(live): floating live window by @BotCoder254 in #59'), 'Floating live window');
   const note = {

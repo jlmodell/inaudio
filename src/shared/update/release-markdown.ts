@@ -32,6 +32,7 @@ function inline(text: string): string {
     .replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/compare\/(\S+)/g, '$1')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/<[^>]*>/g, '')
+    .replace(/[<>]/g, '')
     .replace(/(\*\*|__|`)/g, '')
     .replace(/(^|\s)[*_](\S[^*_]*\S|\S)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
     .replace(/\s+/g, ' ')
@@ -39,9 +40,19 @@ function inline(text: string): string {
     .slice(0, MAX_LINE);
 }
 
+/** HTML comments out, repeated until none are left, so removing one cannot form another. */
+function stripComments(text: string): string {
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
+  } while (text !== previous);
+  return text;
+}
+
 export function parseReleaseMarkdown(markdown: string): ReleaseBlock[] {
   const blocks: ReleaseBlock[] = [];
-  const lines = markdown.replace(/<!--[\s\S]*?-->/g, '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = stripComments(markdown).replace(/\r\n?/g, '\n').split('\n');
   for (const raw of lines) {
     if (blocks.length >= MAX_BLOCKS) break;
     const line = raw.trim();
