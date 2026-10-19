@@ -23,15 +23,24 @@ export interface ReleaseNote {
 const MAX_BLOCKS = 200;
 const MAX_LINE = 400;
 
+/** Removes a pattern until none is left, so removing one match cannot form another. */
+function removeAll(text: string, pattern: RegExp): string {
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(pattern, '');
+  } while (text !== previous);
+  return text;
+}
+
 /** Inline Markdown to plain words: links keep their text, PR and compare links shrink. */
 function inline(text: string): string {
-  return text
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+  const linked = removeAll(text, /!\[[^\]]*\]\([^)]*\)/g)
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/(\d+)/g, '#$1')
     .replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/compare\/(\S+)/g, '$1')
-    .replace(/https?:\/\/\S+/g, '')
-    .replace(/<[^>]*>/g, '')
+    .replace(/https?:\/\/\S+/g, '');
+  return removeAll(linked, /<[^>]*>/g)
     .replace(/[<>]/g, '')
     .replace(/(\*\*|__|`)/g, '')
     .replace(/(^|\s)[*_](\S[^*_]*\S|\S)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
@@ -40,19 +49,9 @@ function inline(text: string): string {
     .slice(0, MAX_LINE);
 }
 
-/** HTML comments out, repeated until none are left, so removing one cannot form another. */
-function stripComments(text: string): string {
-  let previous: string;
-  do {
-    previous = text;
-    text = text.replace(/<!--[\s\S]*?-->/g, '');
-  } while (text !== previous);
-  return text;
-}
-
 export function parseReleaseMarkdown(markdown: string): ReleaseBlock[] {
   const blocks: ReleaseBlock[] = [];
-  const lines = stripComments(markdown).replace(/\r\n?/g, '\n').split('\n');
+  const lines = removeAll(markdown, /<!--[\s\S]*?-->/g).replace(/\r\n?/g, '\n').split('\n');
   for (const raw of lines) {
     if (blocks.length >= MAX_BLOCKS) break;
     const line = raw.trim();

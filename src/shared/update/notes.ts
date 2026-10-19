@@ -24,17 +24,23 @@ function decode(text: string): string {
   });
 }
 
+/** Removes a pattern until none is left, so removing one match cannot form another. */
+function removeAll(text: string, pattern: RegExp): string {
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(pattern, '');
+  } while (text !== previous);
+  return text;
+}
+
 /** One release's notes as readable lines: list items keep a bullet, everything else is text. */
 function toText(html: string): string {
-  return decode(
-    html
-      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
-      .replace(/<li[^>]*>/gi, '\n• ')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|h[1-6]|ul|ol|pre|blockquote)>/gi, '\n\n')
-      .replace(/<[^>]*>/g, '')
-      .replace(/[<>]/g, ''),
-  )
+  const lines = removeAll(html, /<(script|style)[\s\S]*?<\/\1>/gi)
+    .replace(/<li[^>]*>/gi, '\n• ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|ul|ol|pre|blockquote)>/gi, '\n\n');
+  return decode(removeAll(lines, /<[^>]*>/g).replace(/[<>]/g, ''))
     .split('\n')
     .map((line) => line.replace(/[ \t]+/g, ' ').trim())
     .join('\n')
