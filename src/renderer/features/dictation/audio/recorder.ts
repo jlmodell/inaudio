@@ -1,12 +1,23 @@
+import type { MicProcessing } from '@shared/domain/capture';
 import workletUrl from './capture.worklet.ts?worker&url';
+import { micConstraints } from './mic-constraints';
 
 export const TARGET_RATE = 16_000;
 
 export interface RecorderOptions {
   deviceId: string;
   gain: number;
+  /** Chromium's voice processing; all on unless the audio settings say otherwise. */
+  processing?: MicProcessing;
   onLevel(level: number): void;
 }
+
+const DEFAULT_PROCESSING: MicProcessing = {
+  noiseSuppression: true,
+  echoCancellation: true,
+  autoGainControl: true,
+  voiceIsolation: false,
+};
 
 /**
  * Captures microphone audio as 16 kHz mono float32. The AudioContext runs at
@@ -24,18 +35,10 @@ export class Recorder {
     return this.startedAt ? performance.now() - this.startedAt : 0;
   }
 
-  async start({ deviceId, gain, onLevel }: RecorderOptions): Promise<void> {
+  async start({ deviceId, gain, processing = DEFAULT_PROCESSING, onLevel }: RecorderOptions): Promise<void> {
     this.chunks = [];
     this.length = 0;
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: deviceId && deviceId !== 'default' ? { exact: deviceId } : undefined,
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, processing) });
     try {
       this.context = new AudioContext({ sampleRate: TARGET_RATE, latencyHint: 'interactive' });
       await this.context.audioWorklet.addModule(workletUrl);

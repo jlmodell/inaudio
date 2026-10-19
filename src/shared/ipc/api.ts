@@ -1,4 +1,5 @@
-import type { HistoryPage, HistoryQuery, Transcript } from '../domain/history';
+import type { LiveChunk, LiveCommand, LivePreview, LiveReport, LiveStartInput, LiveState } from '../domain/capture';
+import type { ExportFormat, HistoryKind, HistoryPage, HistoryQuery, HistoryUpdate, Transcript } from '../domain/history';
 import type { ModelId, ModelStatus, VoiceId } from '../domain/models';
 import type { Settings, SettingsPatch } from '../domain/settings';
 import type {
@@ -6,6 +7,8 @@ import type {
   AppCommand,
   AudioDevice,
   DictationState,
+  LiveWindowAction,
+  LiveWindowState,
   ModelProgressEvent,
   OverlayAction,
   OverlayState,
@@ -14,7 +17,7 @@ import type {
 } from '../domain/system';
 import type { ExternalLinkId } from './schemas';
 import type { CompanionGaze, CompanionId, CompanionSnapshot } from '../domain/companion';
-import type { UpdateStatus } from '../domain/update';
+import type { ReleaseNotesResult, UpdateStatus } from '../domain/update';
 import type {
   ReadAloudChunk,
   ReadAloudControl,
@@ -47,12 +50,19 @@ export interface InaudioApi {
     revealModels(): Promise<void>;
     window(action: WindowAction): Promise<void>;
     menu(command: AppMenuCommand): Promise<void>;
+    /** Opens the OS page where an app's audio output can be changed (Volume mixer). */
+    openSoundSettings(): Promise<void>;
   };
   updates: {
     status(): Promise<UpdateStatus>;
     check(): Promise<UpdateStatus>;
     download(): Promise<UpdateStatus>;
     install(): Promise<void>;
+    /**
+     * Published release notes from GitHub. Fetched only while automatic updates are on, or
+     * when `force` says the user asked; otherwise the last list is returned, marked paused.
+     */
+    releaseNotes(force: boolean): Promise<ReleaseNotesResult>;
   };
   settings: {
     get(): Promise<Settings>;
@@ -81,6 +91,32 @@ export interface InaudioApi {
      */
     report(devices: AudioDevice[]): void;
   };
+  live: {
+    /** The current session, for a window that opens after it started. */
+    get(): Promise<LiveState>;
+    /** Asks the main process to start a session; it arms the capture grant and commands this window. */
+    start(input: LiveStartInput): Promise<void>;
+    stop(): Promise<void>;
+    /** Ends the session without saving anything. */
+    cancel(): Promise<void>;
+    /** One chunk of 16 kHz mono audio; resolves once it is transcribed. */
+    chunk(chunk: LiveChunk): Promise<void>;
+    /** The capturing window reporting what it is actually doing. */
+    report(report: LiveReport): void;
+    /**
+     * The unfinished stretch, for the provisional line. Resolves at once when the engine is
+     * busy; the main process decides whether it is worth decoding.
+     */
+    preview(preview: LivePreview): Promise<void>;
+    /** Shows the floating live window. App window only. */
+    openWindow(): Promise<void>;
+  };
+  liveWindow: {
+    /** Floating live window only: one of a fixed set of commands. It never sends text. */
+    act(action: LiveWindowAction): Promise<void>;
+    /** An edge or corner is being dragged: pointer position in screen DIPs. */
+    resize(phase: 'start' | 'move' | 'end', edge: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', x: number, y: number): void;
+  };
   overlay: {
     /** Asks the main process to run one of a fixed set of overlay commands. */
     act(action: OverlayAction): Promise<void>;
@@ -91,6 +127,8 @@ export interface InaudioApi {
      * window the room the menu needs. The overlay does not resize itself.
      */
     menu(open: boolean): void;
+    /** The pill is being dragged by its handle: pointer position in screen DIPs. */
+    drag(phase: 'start' | 'move' | 'end', x: number, y: number): void;
   };
   text: {
     insert(text: string): Promise<void>;
@@ -112,6 +150,13 @@ export interface InaudioApi {
     list(query: HistoryQuery): Promise<HistoryPage>;
     remove(id: string): Promise<void>;
     clear(): Promise<void>;
+    /** Renames or pins a transcript. Returns it as saved, or null when it no longer exists. */
+    update(id: string, patch: HistoryUpdate): Promise<Transcript | null>;
+    /**
+     * Writes transcripts to a file the user picks in the native save dialog: the given ids,
+     * or every transcript of a view. Resolves with how many were written, 0 when cancelled.
+     */
+    export(input: { ids?: string[]; kind?: HistoryKind; format: ExportFormat }): Promise<number>;
   };
   companions: {
     get(): Promise<CompanionSnapshot>;
@@ -133,5 +178,13 @@ export interface InaudioApi {
     onReadAloudSession(listener: (session: ReadAloudSession) => void): Unsubscribe;
     onReadAloudState(listener: (state: ReadAloudState) => void): Unsubscribe;
     onReadAloudChunk(listener: (chunk: ReadAloudChunk) => void): Unsubscribe;
+    onLiveState(listener: (state: LiveState) => void): Unsubscribe;
+    onLiveCommand(listener: (command: LiveCommand) => void): Unsubscribe;
+    /** Floating live window only: everything it draws. */
+    onLiveWindowState(listener: (state: LiveWindowState) => void): Unsubscribe;
+    /** A transcript was saved, changed or deleted, so lists should refetch. */
+    onHistoryChanged(listener: () => void): Unsubscribe;
+    /** Floating live window only: the input level, about ten times a second while recording. */
+    onLiveWindowLevel(listener: (level: number) => void): Unsubscribe;
   };
 }

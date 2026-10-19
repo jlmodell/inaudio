@@ -2,7 +2,7 @@ import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/re
 import type { HistoryQuery } from '@shared/domain/history';
 import type { ModelId } from '@shared/domain/models';
 import type { Settings, SettingsPatch } from '@shared/domain/settings';
-import type { UpdateStatus } from '@shared/domain/update';
+import type { UpdateStatus, ReleaseNotesResult } from '@shared/domain/update';
 import { api } from './api';
 
 export const queryClient = new QueryClient({
@@ -55,6 +55,30 @@ export function useUpdateStatus() {
     queryFn: () => api.updates.status(),
     refetchInterval: 10_000,
   });
+}
+
+/**
+ * Release notes from GitHub. Fetched when a page that shows them opens (at most every five
+ * minutes, in main), and only while automatic updates are on unless `load()` is pressed.
+ */
+export function useReleaseNotes(enabled = true) {
+  const client = useQueryClient();
+  const query = useQuery<ReleaseNotesResult>({
+    queryKey: ['release-notes'],
+    queryFn: () => api.updates.releaseNotes(false),
+    enabled,
+    // Live: asked for on every open and focus, and every few minutes while shown. Main answers
+    // from its 30-second cache or with a conditional request, so this stays cheap.
+    staleTime: 10_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: enabled ? 5 * 60_000 : false,
+  });
+  const load = useMutation({
+    mutationFn: () => api.updates.releaseNotes(true),
+    onSuccess: (result) => client.setQueryData(['release-notes'], result),
+  });
+  return { data: query.data, isLoading: query.isLoading, isFetching: query.isFetching, load };
 }
 
 export function useUpdateActions() {

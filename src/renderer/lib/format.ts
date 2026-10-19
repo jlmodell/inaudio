@@ -26,6 +26,36 @@ export function formatWhen(epochMs: number): string {
   return date.toDateString() === today.toDateString() ? `Today, ${time.format(date)}` : dateTime.format(date);
 }
 
+export function formatTime(epochMs: number): string {
+  return time.format(new Date(epochMs));
+}
+
+const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
+const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' });
+const dayMonthYear = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+
+/** The heading a day's items sit under: Today, Yesterday, a weekday this week, then the date. */
+export function formatDay(epochMs: number, now = Date.now()): string {
+  const start = (ms: number) => new Date(new Date(ms).toDateString()).getTime();
+  const days = Math.round((start(now) - start(epochMs)) / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return weekday.format(new Date(epochMs));
+  return new Date(epochMs).getFullYear() === new Date(now).getFullYear() ? dayMonth.format(new Date(epochMs)) : dayMonthYear.format(new Date(epochMs));
+}
+
+/** Items already in order, cut into runs that share a formatDay heading. */
+export function groupByDay<T extends { createdAt: number }>(items: T[]): { day: string; items: T[] }[] {
+  const groups: { day: string; items: T[] }[] = [];
+  for (const item of items) {
+    const day = formatDay(item.createdAt);
+    const last = groups[groups.length - 1];
+    if (last?.day === day) last.items.push(item);
+    else groups.push({ day, items: [item] });
+  }
+  return groups;
+}
+
 /** Renders an Electron accelerator for the current platform. */
 export function formatAccelerator(accelerator: string, platform: string): string[] {
   const mac = platform === 'darwin';

@@ -6,14 +6,21 @@ import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
 import { Switch } from '@renderer/components/ui/switch';
 import { playCue } from '@renderer/features/dictation/audio/cues';
+import { micProcessing } from '@renderer/features/dictation/audio/mic-constraints';
 import { Recorder } from '@renderer/features/dictation/audio/recorder';
 import { LevelMeter } from '@renderer/features/dictation/level-meter';
 import { errorMessage } from '@renderer/lib/api';
 import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
 import { useDictation } from '@renderer/stores/dictation-store';
+import type { MicProcessing } from '@shared/domain/capture';
+import { DiagnosticsSection } from './diagnostics-section';
+import { LiveSessionSection } from './live-session-section';
+import { MicProcessingSection } from './mic-processing-section';
+import { OneAppGuide } from './one-app-guide';
+import { SystemAudioSection } from './system-audio-section';
 import { useMediaDevices } from './use-devices';
 
-function useMicTest(deviceId: string, gain: number) {
+function useMicTest(deviceId: string, gain: number, processing: MicProcessing | null) {
   const recorder = useRef<Recorder | null>(null);
   const [level, setLevel] = useState(0);
   const [testing, setTesting] = useState(false);
@@ -30,7 +37,7 @@ function useMicTest(deviceId: string, gain: number) {
     const r = new Recorder();
     recorder.current = r;
     try {
-      await r.start({ deviceId, gain, onLevel: setLevel });
+      await r.start({ deviceId, gain, processing: processing ?? undefined, onLevel: setLevel });
       setTesting(true);
     } catch (e) {
       recorder.current = null;
@@ -61,7 +68,11 @@ export function AudioPage() {
   const inputs = useMediaDevices('audioinput');
   const outputs = useMediaDevices('audiooutput');
   const dictating = useDictation((s) => s.phase === 'listening');
-  const test = useMicTest(settings?.audio.inputDeviceId ?? 'default', settings?.audio.inputGain ?? 1);
+  const test = useMicTest(
+    settings?.audio.inputDeviceId ?? 'default',
+    settings?.audio.inputGain ?? 1,
+    settings ? micProcessing(settings.audio) : null,
+  );
   if (!settings || !status) return null;
 
   const permission = PERMISSION[status.microphonePermission] ?? PERMISSION.unknown!;
@@ -74,7 +85,7 @@ export function AudioPage() {
 
   return (
     <div>
-      <PageHeader title="Audio" description="Pick the microphone used for dictation and the speaker used for Read Aloud." />
+      <PageHeader title="Audio" description="Pick the microphone used for dictation, the speaker used for Read Aloud, and how Live transcript records system audio." />
       {permission.tone === 'danger' && (
         <div className="pb-6">
           <Notice tone="danger">Microphone access is blocked. Allow Inaudio in your system privacy settings, then restart the app.</Notice>
@@ -113,6 +124,11 @@ export function AudioPage() {
           </Button>
         </Row>
       </Section>
+      <MicProcessingSection
+        audio={settings.audio}
+        cleanup={status.cleanupModels}
+        onChange={(audio) => update.mutate({ audio })}
+      />
       <Section title="Output">
         <Row label="Speaker" description="Used by Read Aloud.">
           <Select
@@ -147,6 +163,20 @@ export function AudioPage() {
           </div>
         </Row>
       </Section>
+      <SystemAudioSection
+        live={settings.live}
+        support={status.systemAudio}
+        inputs={deviceOptions(inputs, 'System default')}
+        onChange={(live) => update.mutate({ live })}
+      />
+      <OneAppGuide
+        inputs={deviceOptions(inputs, 'System default')}
+        live={settings.live}
+        platform={status.platform}
+        onChange={(live) => update.mutate({ live })}
+      />
+      <LiveSessionSection live={settings.live} onChange={(live) => update.mutate({ live })} />
+      <DiagnosticsSection status={status} />
     </div>
   );
 }

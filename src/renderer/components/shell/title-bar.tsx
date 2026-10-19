@@ -4,6 +4,7 @@ import type { AppMenuCommand } from '@shared/domain/system';
 import { IconButton } from '@renderer/components/ui/icon-button';
 import { api } from '@renderer/lib/api';
 import { useSystemStatus } from '@renderer/lib/queries';
+import { UpdateIndicator } from './update-indicator';
 
 const MENUS: {
   label: string;
@@ -21,6 +22,7 @@ const MENUS: {
     label: 'View',
     items: [
       { label: 'Dictation', command: 'view.dictation' },
+      { label: 'Live transcript', command: 'view.live' },
       { label: 'History', command: 'view.history' },
       { label: 'Read Aloud', command: 'view.read-aloud' },
       { label: 'Models', command: 'view.models' },
@@ -32,7 +34,7 @@ const MENUS: {
 ];
 
 /** Menus on the left, window controls on the right; everything between drags the window. */
-export function TitleBar() {
+export function TitleBar({ controls = true }: { controls?: boolean }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLElement>(null);
   const { data: status } = useSystemStatus();
@@ -84,7 +86,8 @@ export function TitleBar() {
         })}
       </nav>
 
-      <div className="no-drag flex items-center gap-1">
+      <div className={controls ? 'no-drag flex items-center gap-1' : 'invisible'}>
+        <UpdateIndicator />
         <button
           type="button"
           className="rounded-[6px] p-1 text-muted hover:bg-surface hover:text-ink"

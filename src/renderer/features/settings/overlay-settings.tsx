@@ -18,6 +18,7 @@ const SECTIONS = [
   { key: 'showLevel', label: 'Input level', description: 'A small meter that moves with your voice.' },
   { key: 'showModel', label: 'Recognition model', description: 'Also lets you switch model from the overlay.' },
   { key: 'showLanguage', label: 'Language', description: 'Shown only for multilingual models.' },
+  { key: 'showCaption', label: 'Live caption', description: 'During a live transcript, the latest words heard.' },
 ] as const satisfies readonly { key: keyof Settings['overlay']; label: string; description: string }[];
 
 export interface OverlaySettingsProps {
@@ -77,11 +78,18 @@ export function OverlaySettings({
         />
       </Row>
 
-      <Row label="Placement" description="Which edge of the screen the pill sits against.">
+      <Row
+        label="Placement"
+        description={
+          overlay.customX !== null
+            ? 'Moved by hand. Pick an edge to put it back, or drag it by its handle again.'
+            : 'Which edge of the screen the pill sits against. You can also drag it by its handle.'
+        }
+      >
         <OverlayPlacement
           value={overlay.position}
           disabled={off}
-          onChange={(position) => onChange({ position })}
+          onChange={(position) => onChange({ position, customX: null, customY: null })}
         />
       </Row>
 

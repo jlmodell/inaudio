@@ -16,6 +16,8 @@ export function createOverlayWindow(overlay: Settings['overlay']): BrowserWindow
     armed: false,
     message: false,
     menuOpen: false,
+    live: false,
+    caption: false,
     devices: 0,
     language: false,
     reading: null,

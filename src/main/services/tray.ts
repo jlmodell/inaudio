@@ -26,6 +26,8 @@ interface TrayActions {
   pauseReading(): void;
   resumeReading(): void;
   stopReading(): void;
+  toggleLive(): void;
+  toggleLiveWindow(): void;
   openSettings(): void;
   selectMicrophone(id: string): void;
   toggleOverlay(): void;
@@ -45,6 +47,8 @@ export class TrayService {
   private models: ModelStatus[] = [];
   private devices: AudioDevice[] = [];
   private reading: 'idle' | 'playing' | 'paused' = 'idle';
+  private live = false;
+  private liveWindow = false;
   private titleTimer: NodeJS.Timeout | null = null;
   /** What was last drawn, so identical redraws skip rebuilding the native menu. */
   private drawn = '';
@@ -88,6 +92,20 @@ export class TrayService {
   setReading(reading: 'idle' | 'playing' | 'paused'): void {
     if (this.reading === reading) return;
     this.reading = reading;
+    this.render();
+  }
+
+  /** The floating live window is showing. */
+  setLiveWindow(open: boolean): void {
+    if (this.liveWindow === open) return;
+    this.liveWindow = open;
+    this.render();
+  }
+
+  /** A live transcript is recording system audio. */
+  setLive(live: boolean): void {
+    if (this.live === live) return;
+    this.live = live;
     this.render();
   }
 
@@ -154,12 +172,12 @@ export class TrayService {
   }
 
   private template(): MenuItemConstructorOptions[] {
-    const { dictation, tts, overlay, companion } = this.settings;
+    const { dictation, tts, overlay, companion, live, liveWindow } = this.settings;
     const idle = this.phase === 'idle';
     const listening = this.phase === 'listening';
     const busy = this.phase === 'transcribing' || this.phase === 'inserting';
     return [
-      { label: PHASE_LABEL[this.phase], enabled: false },
+      { label: this.headline(), enabled: false },
       { type: 'separator' },
       {
         label: 'Start dictation',
@@ -182,6 +200,20 @@ export class TrayService {
         visible: !idle,
         enabled: listening,
         click: this.actions.cancelDictation,
+      },
+      {
+        label: this.live ? 'Stop live transcript' : 'Start live transcript',
+        accelerator: hint(live.shortcut),
+        registerAccelerator: false,
+        click: this.actions.toggleLive,
+      },
+      {
+        label: 'Show live window',
+        type: 'checkbox',
+        checked: this.liveWindow,
+        accelerator: hint(liveWindow.shortcut),
+        registerAccelerator: false,
+        click: this.actions.toggleLiveWindow,
       },
       {
         label: 'Read selection aloud',
@@ -238,17 +270,23 @@ export class TrayService {
     ];
   }
 
+  /** Dictation names the state while it runs; otherwise a live session does. */
+  private headline(): string {
+    return this.live && this.phase === 'idle' ? 'Recording system audio…' : PHASE_LABEL[this.phase];
+  }
+
   private render(): void {
     const tray = this.tray;
     if (!tray || tray.isDestroyed()) return;
-    const recording = this.settings.tray.reflectState && this.phase === 'listening';
+    // A live session always shows the recording icon: system capture is never silent.
+    const recording = (this.settings.tray.reflectState && this.phase === 'listening') || this.live;
     const template = this.template();
     // JSON drops the click handlers; device ids stand in for what the microphone items select.
     const drawn = JSON.stringify([recording, this.phase, this.devices, template]);
     if (drawn !== this.drawn) {
       this.drawn = drawn;
       tray.setImage(recording ? trayRecordingImage() : trayImage());
-      tray.setToolTip(`${app.getName()}: ${PHASE_LABEL[this.phase]}`);
+      tray.setToolTip(`${app.getName()}: ${this.headline()}`);
       tray.setContextMenu(Menu.buildFromTemplate(template));
     }
     this.applyTitle();

@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, type ComponentType } from 'react';
+import type { UpdateStatus } from '@shared/domain/update';
 import { AppShell } from '@renderer/components/shell/app-shell';
 import { api, errorMessage } from '@renderer/lib/api';
 import { keys, useSettings } from '@renderer/lib/queries';
@@ -9,16 +10,20 @@ import { AudioPage } from '@renderer/features/audio/audio-page';
 import { useReportInputDevices } from '@renderer/features/audio/use-devices';
 import { DictationPage } from '@renderer/features/dictation/dictation-page';
 import { HistoryPage } from '@renderer/features/history/history-page';
+import { LivePage } from '@renderer/features/live/live-page';
+import { connectLive } from '@renderer/features/live/live-store';
 import { ModelsPage } from '@renderer/features/models/models-page';
 import { ReadAloudPage } from '@renderer/features/read-aloud/read-aloud-page';
 import { connectReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
 import { SettingsPage } from '@renderer/features/settings/settings-page';
 import { SetupFlow } from '@renderer/features/setup/setup-flow';
+import { ReleaseNotesDrawer, useWhatsNewAfterUpdate, WhatsNewBillboard } from '@renderer/features/tour/whats-new';
 import { LogoMark } from '@renderer/components/brand/logo';
 import { CompanionPage } from '@renderer/features/companion/companion-page';
 
 const PAGES: Record<Route, ComponentType> = {
   dictation: DictationPage,
+  live: LivePage,
   history: HistoryPage,
   'read-aloud': ReadAloudPage,
   models: ModelsPage,
@@ -43,6 +48,9 @@ function useMainEvents() {
             return void dictation.stop();
           case 'dictation:cancel':
             return void dictation.cancel();
+          case 'history:open-latest':
+            navigate('history');
+            return useUi.getState().openTranscript('latest');
           default:
             if (command.startsWith('navigate:')) navigate(command.slice('navigate:'.length) as Route);
         }
@@ -55,8 +63,19 @@ function useMainEvents() {
         client.setQueryData(keys.settings, settings);
         void client.invalidateQueries({ queryKey: keys.models });
       }),
-      api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })), 
+      api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })),
+      api.events.onHistoryChanged(() => void client.invalidateQueries({ queryKey: keys.historyAll })),
+      // Download progress is pushed as it happens, so the bar and the title bar move smoothly.
+      api.events.onUpdateState((status) => {
+        const before = client.getQueryData<UpdateStatus>(['update']);
+        client.setQueryData(['update'], status);
+        // A newly found release brings its own notes: fetch them now, not on the next tick.
+        if (status.availableVersion && status.availableVersion !== before?.availableVersion) {
+          void client.invalidateQueries({ queryKey: ['release-notes'] });
+        }
+      }),
       connectReadAloud(),
+      connectLive(),
     ];
     return () => offs.forEach((off) => off());
   }, [client, navigate]);
@@ -146,6 +165,18 @@ export function App() {
   return (
     <AppShell>
       <Page />
+      <Announcements />
     </AppShell>
+  );
+}
+
+/** What's new after an update, and the full release notes, available from anywhere. */
+function Announcements() {
+  useWhatsNewAfterUpdate();
+  return (
+    <>
+      <WhatsNewBillboard />
+      <ReleaseNotesDrawer />
+    </>
   );
 }

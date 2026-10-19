@@ -25,6 +25,9 @@ if (!existsSync(path.join(resources, 'app-update.yml'))) {
   throw new Error(`Packaged app has no app-update.yml in ${resources}; updates could not download`);
 }
 
+// The installer's hero animations and header, rendered fresh for each build (never committed).
+if (platform === 'win32') run(process.execPath, [path.resolve('scripts', 'build-installer-art.mjs')]);
+
 const targetArgs = platform === 'win32' ? ['--win', 'nsis'] : platform === 'darwin' ? ['--mac', 'zip'] : ['--linux', 'AppImage', 'deb', 'rpm'];
 run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
   'electron-builder',

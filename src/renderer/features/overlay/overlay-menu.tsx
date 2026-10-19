@@ -68,6 +68,25 @@ export function OverlayMenu({
           <PanelSeparator />
           <DropdownMenu.Item
             className={panelItemClass}
+            onSelect={() => void api.overlay.act({ type: 'open-latest' })}
+          >
+            Open last transcript
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={panelItemClass}
+            onSelect={() => void api.overlay.act({ type: 'open-history' })}
+          >
+            Open History
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={panelItemClass}
+            onSelect={() => void api.overlay.act({ type: 'reset-position' })}
+          >
+            Reset position
+          </DropdownMenu.Item>
+          <PanelSeparator />
+          <DropdownMenu.Item
+            className={panelItemClass}
             onSelect={() => void api.overlay.act({ type: 'hide' })}
           >
             Hide overlay

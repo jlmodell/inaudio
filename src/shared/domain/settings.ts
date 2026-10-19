@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { liveSessionMinutesSchema, liveSourceSchema } from './capture';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema } from './models';
+import { MAX_REPLACEMENT_CHARS, MAX_REPLACEMENTS } from '../text/replacements';
 import {
   DEFAULT_COMPANION_SETTINGS,
   companionSettingsPatchSchema,
@@ -115,6 +117,11 @@ export type OverlayDisplayMode = z.infer<typeof overlayDisplaySchema>;
 
 export const OVERLAY_MIN_OPACITY = 0.4;
 
+/** The floating live window carries text, so it never fades as far as the pill can. */
+export const LIVE_WINDOW_MIN_OPACITY = 0.6;
+/** Size limits for the floating live window, in DIPs. Only its size is ever persisted. */
+export const LIVE_WINDOW_SIZE = { minWidth: 320, minHeight: 140, maxWidth: 720, maxHeight: 560 } as const;
+
 /** Accent tones the stylesheet defines, in the order they are offered. */
 export const ACCENT_TONES = ['blue', 'violet', 'green', 'amber', 'rose'] as const;
 export const accentToneSchema = z.enum(ACCENT_TONES);
@@ -127,6 +134,17 @@ export const RESERVED_DEVICE_IDS = ['default', 'communications'] as const;
  * A MediaDeviceInfo.deviceId. Chromium emits a hashed token, so the charset is pinned to
  * what a hash or a base64url id can hold and nothing else ever reaches disk or a menu.
  */
+/** One custom-words fix: what the engine writes, and what it should write instead. */
+export const replacementSchema = z
+  .object({
+    from: z.string().trim().min(1).max(MAX_REPLACEMENT_CHARS),
+    to: z.string().max(MAX_REPLACEMENT_CHARS),
+  })
+  .strict();
+
+/** A fraction of the work area, 0 at the left or top edge and 1 at the right or bottom. */
+const fractionSchema = z.number().min(0).max(1);
+
 export const deviceIdSchema = z
   .string()
   .min(1)
@@ -159,10 +177,20 @@ export const settingsSchema = z.object({
     inputDeviceId: deviceIdSchema,
     outputDeviceId: deviceIdSchema,
     inputGain: z.number().min(0).max(2),
+    /** Chromium's WebRTC processing on microphone tracks, for dictation and the live mix. */
+    noiseSuppression: z.boolean(),
+    echoCancellation: z.boolean(),
+    autoGainControl: z.boolean(),
+    /** Applied only where `getSupportedConstraints()` reports it. */
+    voiceIsolation: z.boolean(),
+    /** Runs the bundled GTCRN speech-cleanup model before recognition. */
+    speechCleanup: z.boolean(),
   }),
   stt: z.object({
     modelId: sttModelIdSchema,
     threads: z.number().int().min(1).max(16),
+    /** Custom words, applied to dictation and live transcripts. */
+    replacements: z.array(replacementSchema).max(MAX_REPLACEMENTS),
   }),
   tts: z.object({
     modelId: ttsModelIdSchema,
@@ -196,6 +224,14 @@ export const settingsSchema = z.object({
     showModel: z.boolean(),
     showLanguage: z.boolean(),
     toggleShortcut: optionalAcceleratorSchema,
+    /** Show the latest words of a live transcript in the pill. */
+    showCaption: z.boolean(),
+    /**
+     * Where the user dragged the pill, as fractions of the work area (its centre, and the
+     * edge it grows from), or null to use `position`. Pixels are never stored.
+     */
+    customX: fractionSchema.nullable(),
+    customY: fractionSchema.nullable(),
   }),
   tray: z.object({
     enabled: z.boolean(),
@@ -203,6 +239,41 @@ export const settingsSchema = z.object({
     leftClick: z.enum(['window', 'dictate']),
     showMicrophones: z.boolean(),
     notifications: z.boolean(),
+  }),
+  live: z.object({
+    source: liveSourceSchema,
+    systemGain: z.number().min(0.5).max(2),
+    micGain: z.number().min(0).max(2),
+    /** Pause Read Aloud when a session starts, so Inaudio's own voice is not transcribed. */
+    pauseReadAloud: z.boolean(),
+    /** The user has read the notice about recording other people and asked not to see it again. */
+    consentAcknowledged: z.boolean(),
+    shortcut: optionalAcceleratorSchema,
+    /** The input the `device` source records, such as a virtual cable. */
+    deviceId: deviceIdSchema,
+    /** Drop stretches the bundled voice detector finds no speech in. */
+    skipNonSpeech: z.boolean(),
+    /** Show a provisional line while someone is still speaking. */
+    preview: z.boolean(),
+    saveHistory: z.boolean(),
+    maxMinutes: liveSessionMinutesSchema,
+    /** Join passages into sentences: no false full stops at cuts, no repeated words. */
+    smartJoin: z.boolean(),
+    /** Re-punctuate each passage with the bundled English punctuation model. */
+    restorePunctuation: z.boolean(),
+  }),
+  liveWindow: z.object({
+    openOnStart: z.boolean(),
+    alwaysOnTop: z.boolean(),
+    /** Excludes the window from screen capture where the OS allows it. */
+    hideFromCapture: z.boolean(),
+    textSize: z.enum(['sm', 'md', 'lg']),
+    opacity: z.number().min(LIVE_WINDOW_MIN_OPACITY).max(1),
+    /** The corner it opens in. A dragged position lasts until the window is closed. */
+    position: overlayPositionSchema,
+    width: z.number().int().min(LIVE_WINDOW_SIZE.minWidth).max(LIVE_WINDOW_SIZE.maxWidth),
+    height: z.number().int().min(LIVE_WINDOW_SIZE.minHeight).max(LIVE_WINDOW_SIZE.maxHeight),
+    shortcut: optionalAcceleratorSchema,
   }),
   system: z.object({
     launchAtLogin: z.boolean(),
@@ -215,6 +286,12 @@ export const settingsSchema = z.object({
     downloadAutomatically: z.boolean(),
   }),
   companion: companionSettingsSchema,
+  announcements: z.object({
+    /** Show the what's-new billboard once after an update. */
+    whatsNew: z.boolean(),
+    /** The version whose what's-new was last seen; empty before the first one. */
+    seenVersion: z.string().max(32).regex(/^$|^\d+\.\d+\.\d+[\w.+-]*$/),
+  }),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -228,9 +305,12 @@ const GROUP_KEYS = [
   'tts',
   'overlay',
   'tray',
+  'live',
+  'liveWindow',
   'system',
   'updates',
   'companion',
+  'announcements',
 ] as const;
 type GroupKey = (typeof GROUP_KEYS)[number];
 
@@ -256,8 +336,17 @@ export const DEFAULT_SETTINGS: Settings = {
     playCues: true,
     cueVolume: 0.8,
   },
-  audio: { inputDeviceId: 'default', outputDeviceId: 'default', inputGain: 1 },
-  stt: { modelId: 'parakeet-tdt-0.6b-v2-int8', threads: 4 },
+  audio: {
+    inputDeviceId: 'default',
+    outputDeviceId: 'default',
+    inputGain: 1,
+    noiseSuppression: true,
+    echoCancellation: true,
+    autoGainControl: true,
+    voiceIsolation: false,
+    speechCleanup: false,
+  },
+  stt: { modelId: 'parakeet-tdt-0.6b-v2-int8', threads: 4, replacements: [] },
   tts: {
     modelId: 'kokoro-en-v0_19',
     voiceId: '00',
@@ -285,6 +374,9 @@ export const DEFAULT_SETTINGS: Settings = {
     showModel: false,
     showLanguage: false,
     toggleShortcut: '',
+    showCaption: true,
+    customX: null,
+    customY: null,
   },
   tray: {
     enabled: true,
@@ -293,9 +385,36 @@ export const DEFAULT_SETTINGS: Settings = {
     showMicrophones: true,
     notifications: false,
   },
+  live: {
+    source: 'system',
+    systemGain: 1,
+    micGain: 1,
+    pauseReadAloud: true,
+    consentAcknowledged: false,
+    shortcut: '',
+    deviceId: 'default',
+    skipNonSpeech: true,
+    preview: true,
+    saveHistory: true,
+    maxMinutes: 180,
+    smartJoin: true,
+    restorePunctuation: false,
+  },
+  liveWindow: {
+    openOnStart: true,
+    alwaysOnTop: true,
+    hideFromCapture: true,
+    textSize: 'md',
+    opacity: 1,
+    position: 'bottom-right',
+    width: 420,
+    height: 300,
+    shortcut: '',
+  },
   system: { launchAtLogin: false, closeToTray: true, autoUnload: true, idleMinutes: 10 },
   updates: { checkAutomatically: true, downloadAutomatically: true },
   companion: DEFAULT_COMPANION_SETTINGS,
+  announcements: { whatsNew: true, seenVersion: '' },
 };
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -311,9 +430,12 @@ export const settingsPatchSchema = z
     tts: settingsSchema.shape.tts.partial().strict().optional(),
     overlay: settingsSchema.shape.overlay.partial().strict().optional(),
     tray: settingsSchema.shape.tray.partial().strict().optional(),
+    live: settingsSchema.shape.live.partial().strict().optional(),
+    liveWindow: settingsSchema.shape.liveWindow.partial().strict().optional(),
     system: settingsSchema.shape.system.partial().strict().optional(),
     updates: settingsSchema.shape.updates.partial().strict().optional(),
     companion: companionSettingsPatchSchema.optional(),
+    announcements: settingsSchema.shape.announcements.partial().strict().optional(),
   })
   .strict();
 
@@ -330,8 +452,11 @@ export function mergeSettings(base: Settings, patch: SettingsPatch): Settings {
     tts: { ...base.tts, ...patch.tts },
     overlay: { ...base.overlay, ...patch.overlay },
     tray: { ...base.tray, ...patch.tray },
+    live: { ...base.live, ...patch.live },
+    liveWindow: { ...base.liveWindow, ...patch.liveWindow },
     system: { ...base.system, ...patch.system },
     updates: { ...base.updates, ...patch.updates },
+    announcements: { ...base.announcements, ...patch.announcements },
     companion: {
       ...base.companion,
       ...patch.companion,

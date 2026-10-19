@@ -12,7 +12,8 @@ export function titleBarColors() {
   return { color: dark ? CANVAS.dark : CANVAS.light, symbolColor: dark ? INK.dark : INK.light, height: 44 };
 }
 
-export function createMainWindow(): BrowserWindow {
+/** `show: false` builds the window hidden, for capture started from outside it. */
+export function createMainWindow({ show = true }: { show?: boolean } = {}): BrowserWindow {
   const { workAreaSize } = screen.getPrimaryDisplay();
   const win = new BrowserWindow({
     width: Math.min(1180, workAreaSize.width),
@@ -58,7 +59,7 @@ export function createMainWindow(): BrowserWindow {
   win.webContents.on('render-process-gone', (_event, details) => {
     console.error(`Main window renderer exited (${details.reason}): ${details.exitCode}`);
   });
-  win.once('ready-to-show', () => win.show());
+  if (show) win.once('ready-to-show', () => win.show());
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     void win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

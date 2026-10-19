@@ -1,5 +1,5 @@
-import { Check, Download, FolderOpen, RefreshCw, Search, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Check, FolderOpen } from 'lucide-react';
+import { useEffect } from 'react';
 import { Button } from '@renderer/components/ui/button';
 import { Badge, PageHeader, Row, Section } from '@renderer/components/ui/layout';
 import { RadioGroup } from '@renderer/components/ui/radio-group';
@@ -8,12 +8,17 @@ import { Select } from '@renderer/components/ui/select';
 import { Switch } from '@renderer/components/ui/switch';
 import { api } from '@renderer/lib/api';
 import { useSettings, useSystemStatus, useUpdateActions, useUpdateSettings, useUpdateStatus } from '@renderer/lib/queries';
+import { useUi, type SettingsCategory } from '@renderer/stores/ui-store';
 import type { Settings } from '@shared/domain/settings';
 import type { ShortcutStatus } from '@shared/domain/system';
+import { LiveWindowSettings } from './live-window-settings';
 import { OverlaySettings } from './overlay-settings';
 import { ReadAloudSettings } from './read-aloud-settings';
+import { CATEGORIES } from './settings-nav';
 import { ShortcutInput } from './shortcut-input';
+import { TranscriptQualitySettings } from './transcript-quality-settings';
 import { TraySettings } from './tray-settings';
+import { UpdateSection } from './update-section';
 
 const THREADS = [1, 2, 4, 6, 8, 12, 16];
 /** Idle delays offered before the engine unloads. The schema allows 1–60 minutes. */
@@ -25,42 +30,6 @@ const ACCENT_COLORS = {
   amber: '#ba7400',
   rose: '#c14574',
 } as const;
-const SEARCH_ITEMS = [
-  { id: 'settings-appearance', label: 'Appearance', section: 'Appearance', keywords: 'theme font animations width accent color' },
-  { id: 'settings-theme', label: 'Theme mode', section: 'Appearance', keywords: 'system light dark theme preview' },
-  { id: 'settings-font-size', label: 'Font size', section: 'Appearance', keywords: 'text size' },
-  { id: 'settings-font-family', label: 'Font family', section: 'Appearance', keywords: 'typeface font' },
-  { id: 'settings-animations', label: 'Animations', section: 'Appearance', keywords: 'motion reduced off' },
-  { id: 'settings-content-width', label: 'Display width', section: 'Appearance', keywords: 'compact default wide layout' },
-  { id: 'settings-accent', label: 'Accent color', section: 'Appearance', keywords: 'blue violet green amber rose color' },
-  { id: 'settings-dictation', label: 'Dictation', section: 'Dictation', keywords: 'recording transcript clipboard history' },
-  { id: 'settings-cues', label: 'Sound cues', section: 'Dictation', keywords: 'audio tones volume start stop error' },
-  { id: 'settings-read-aloud', label: 'Read Aloud', section: 'Read Aloud', keywords: 'speech voice speak tts kokoro selection' },
-  { id: 'settings-read-aloud-voice', label: 'Voice and speed', section: 'Read Aloud', keywords: 'speaker voice speed rate volume loudness' },
-  { id: 'settings-read-aloud-capture', label: 'Read the selection directly', section: 'Read Aloud', keywords: 'accessibility ui automation selected text copy clipboard restore' },
-  { id: 'settings-read-aloud-overlay', label: 'Read Aloud in the overlay', section: 'Read Aloud', keywords: 'pill pause stop dictation follow highlight' },
-  { id: 'settings-overlay', label: 'Recording overlay', section: 'Overlay', keywords: 'pill floating window show hide' },
-  { id: 'settings-overlay-visibility', label: 'When to show the overlay', section: 'Overlay', keywords: 'always while active hide idle' },
-  { id: 'settings-overlay-placement', label: 'Overlay placement', section: 'Overlay', keywords: 'position corner top bottom left right screen' },
-  { id: 'settings-overlay-display', label: 'Overlay display', section: 'Overlay', keywords: 'monitor screen cursor pointer primary follow' },
-  { id: 'settings-overlay-opacity', label: 'Overlay opacity', section: 'Overlay', keywords: 'transparent fade solid' },
-  { id: 'settings-overlay-click-through', label: 'Click through', section: 'Overlay', keywords: 'mouse clicks idle ignore' },
-  { id: 'settings-overlay-sections', label: 'Overlay contents', section: 'Overlay', keywords: 'timer level model language meter elapsed' },
-  { id: 'settings-tray', label: 'Tray icon', section: 'Tray', keywords: 'menu icon status notification' },
-  { id: 'settings-tray-left-click', label: 'Tray left click', section: 'Tray', keywords: 'window dictate' },
-  { id: 'settings-tray-microphones', label: 'Tray microphones', section: 'Tray', keywords: 'input device menu' },
-  { id: 'settings-tray-notifications', label: 'Tray notifications', section: 'Tray', keywords: 'system notify alert' },
-  { id: 'settings-shortcuts', label: 'Shortcuts', section: 'Shortcuts', keywords: 'keyboard keys accelerator hotkey' },
-  { id: 'settings-shortcut-cancel', label: 'Cancel recording shortcut', section: 'Shortcuts', keywords: 'escape abort discard' },
-  { id: 'settings-shortcut-read-pause', label: 'Pause reading shortcut', section: 'Shortcuts', keywords: 'read aloud resume speech' },
-  { id: 'settings-shortcut-read-stop', label: 'Stop reading shortcut', section: 'Shortcuts', keywords: 'read aloud end speech' },
-  { id: 'settings-shortcut-overlay', label: 'Overlay shortcut', section: 'Shortcuts', keywords: 'show hide pill' },
-  { id: 'settings-performance', label: 'Performance', section: 'Performance', keywords: 'cpu threads power battery memory unload' },
-  { id: 'settings-unload', label: 'Unload models when idle', section: 'Performance', keywords: 'memory ram free idle minutes' },
-  { id: 'settings-app', label: 'App', section: 'App', keywords: 'login tray setup close quit' },
-  { id: 'settings-about', label: 'About', section: 'About', keywords: 'version engine data folder models' },
-  { id: 'settings-updates', label: 'Updates', section: 'About', keywords: 'update download install release rollout version' },
-] as const;
 
 /** Three words for the three ways a configured accelerator can land. */
 const SHORTCUT_NOTE: Record<ShortcutStatus, string | null> = {
@@ -69,77 +38,110 @@ const SHORTCUT_NOTE: Record<ShortcutStatus, string | null> = {
   off: null,
 };
 
-function ThemePreview({ theme }: { theme: 'system' | 'light' | 'dark' }) {
-  const dark = theme === 'dark';
-  const mixed = theme === 'system';
+/** The two palettes a theme card draws, from the tokens in index.css. */
+const PALETTE = {
+  light: { canvas: '#eef0f3', surface: '#ffffff', sunken: '#f0f2f6', line: '#c7cdd8', ink: '#8a919c', accent: '#2f5bea' },
+  dark: { canvas: '#0b0b0d', surface: '#131316', sunken: '#0f1012', line: '#32343a', ink: '#a8adb7', accent: '#7f95ff' },
+} as const;
+
+/** A miniature Inaudio window in one palette. */
+function MiniWindow({ tone }: { tone: 'light' | 'dark' }) {
+  const c = PALETTE[tone];
   return (
-    <div className={`grid h-24 grid-cols-[30%_1fr] overflow-hidden rounded-lg border ${dark ? 'border-[#393b45] bg-[#17181d]' : 'border-[#d8dce4] bg-white'}`}>
-      <div className={`p-2 ${dark ? 'bg-[#20222a]' : 'bg-[#f0f2f6]'}`}>
-        <div className={`mb-2 h-1.5 w-8 rounded-full ${dark ? 'bg-[#626878]' : 'bg-[#aeb6c4]'}`} />
-        <div className={`mb-1 h-1.5 w-full rounded-full ${dark ? 'bg-[#4a4e5b]' : 'bg-[#c7cdd8]'}`} />
-        <div className={`h-1.5 w-3/4 rounded-full ${dark ? 'bg-[#4a4e5b]' : 'bg-[#c7cdd8]'}`} />
-      </div>
-      <div className="space-y-2 p-2">
-        <div className={`h-2 w-1/2 rounded-full ${dark ? 'bg-[#858b9a]' : 'bg-[#77808e]'}`} />
-        <div className="flex h-8 overflow-hidden rounded-md">
-          <div className={`h-full w-1/2 ${mixed || !dark ? 'bg-[#f0f2f6]' : 'bg-[#252832]'}`} />
-          {mixed && <div className="h-full w-1/2 bg-[#252832]" />}
-          {!mixed && <div className={`h-full w-1/2 ${dark ? 'bg-[#252832]' : 'bg-[#f0f2f6]'}`} />}
-        </div>
-        <div className={`h-1.5 w-2/3 rounded-full ${dark ? 'bg-[#4a4e5b]' : 'bg-[#c7cdd8]'}`} />
-      </div>
-    </div>
+    <span className="absolute inset-0 block" style={{ backgroundColor: c.canvas }}>
+      <span
+        className="absolute top-3.5 right-3.5 bottom-0 left-3.5 flex overflow-hidden rounded-t-[8px] shadow-[0_2px_10px_rgb(0_0_0/0.14)]"
+        style={{ backgroundColor: c.surface }}
+      >
+        <span className="grid w-[32%] content-start gap-1.5 px-2 py-2.5" style={{ backgroundColor: c.sunken }}>
+          <span className="h-1.5 w-[70%] rounded-full" style={{ backgroundColor: c.line }} />
+          <span className="h-1.5 rounded-full" style={{ backgroundColor: c.accent }} />
+          <span className="h-1.5 w-[80%] rounded-full" style={{ backgroundColor: c.line }} />
+          <span className="h-1.5 w-[60%] rounded-full" style={{ backgroundColor: c.line }} />
+        </span>
+        <span className="grid flex-1 content-start gap-2 px-2.5 py-3">
+          <span className="h-2 w-[55%] rounded-full" style={{ backgroundColor: c.ink }} />
+          <span className="h-1.5 w-[85%] rounded-full" style={{ backgroundColor: c.line }} />
+          <span className="h-1.5 w-[70%] rounded-full" style={{ backgroundColor: c.line }} />
+          <span className="mt-1 h-4 w-[40%] rounded-[5px]" style={{ backgroundColor: c.accent }} />
+        </span>
+      </span>
+    </span>
+  );
+}
+
+const THEMES = [
+  { value: 'system', label: 'System', description: 'Matches your computer' },
+  { value: 'light', label: 'Light', description: 'Bright surfaces' },
+  { value: 'dark', label: 'Dark', description: 'Dark surfaces' },
+] as const;
+
+/** A theme to pick, drawn as the app would look in it. System shows both, split on the diagonal. */
+function ThemeCard({ theme, selected, onSelect }: { theme: (typeof THEMES)[number]; selected: boolean; onSelect(): void }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className="group grid gap-2.5 rounded-[14px] text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+    >
+      <span
+        className={`relative block h-32 overflow-hidden rounded-[12px] transition-shadow ${selected ? 'shadow-[0_0_0_2px_var(--accent),0_0_0_5px_var(--accent-soft)]' : 'shadow-[0_0_0_1px_var(--line)] group-hover:shadow-[0_0_0_1px_var(--line-strong)]'}`}
+      >
+        <MiniWindow tone={theme.value === 'dark' ? 'dark' : 'light'} />
+        {theme.value === 'system' && (
+          <span className="absolute inset-0 block [clip-path:polygon(62%_0,100%_0,100%_100%,38%_100%)]">
+            <MiniWindow tone="dark" />
+          </span>
+        )}
+      </span>
+      <span className="flex items-center justify-between px-0.5">
+        <span className="text-sm font-semibold">{theme.label}</span>
+        {selected && (
+          <span className="grid size-[18px] place-items-center rounded-full bg-accent text-on-accent">
+            <Check aria-hidden className="size-3" strokeWidth={3} />
+          </span>
+        )}
+      </span>
+      <span className="-mt-1.5 px-0.5 text-xs text-muted">{theme.description}</span>
+    </button>
   );
 }
 
 export function SettingsPage() {
-  const [search, setSearch] = useState('');
   const { data: settings } = useSettings();
   const { data: status } = useSystemStatus();
   const { data: updateStatus } = useUpdateStatus();
   const update = useUpdateSettings();
   const updateActions = useUpdateActions();
-  const results = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return [];
-    return SEARCH_ITEMS.filter((item) => `${item.label} ${item.section} ${item.keywords}`.toLowerCase().includes(query));
-  }, [search]);
-  const jumpTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const category = useUi((s) => s.settingsCategory);
+  const focus = useUi((s) => s.settingsFocus);
+  const clearFocus = useUi((s) => s.clearSettingsFocus);
+  // A search result scrolls to its setting once the page holding it has rendered.
+  useEffect(() => {
+    if (!focus || !settings || !status) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(focus);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.classList.add('settings-flash');
+      setTimeout(() => target?.classList.remove('settings-flash'), 1_400);
+      clearFocus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focus, category, settings, status, clearFocus]);
   if (!settings || !status) return null;
   const { dictation } = settings;
   const cpu = navigator.hardwareConcurrency || 4;
+  const page = CATEGORIES[category];
+  const show = (id: SettingsCategory) => id === category;
 
   return (
     <div>
-      <PageHeader title="Settings" />
-      <div className="relative mb-3">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search settings"
-          aria-label="Search settings"
-          className="h-10 w-full rounded-lg bg-sunken pr-9 pl-9 text-sm text-ink outline-none placeholder:text-faint focus:shadow-[0_0_0_2px_var(--accent)]"
-        />
-        {search && (
-          <button type="button" aria-label="Clear settings search" onClick={() => setSearch('')} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:text-ink">
-            <X className="size-4" />
-          </button>
-        )}
-        {search && (
-          <div className="absolute z-10 mt-2 grid w-full gap-1 rounded-lg border border-line bg-surface p-1 shadow-[0_8px_24px_rgb(0_0_0/0.12)]">
-            {results.length ? results.map((item) => (
-              <button key={item.id} type="button" onClick={() => { jumpTo(item.id); setSearch(''); }} className="flex items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
-                <span>{item.label}</span>
-                <span className="text-xs text-faint">{item.section}</span>
-              </button>
-            )) : <p className="px-3 py-2 text-sm text-muted">No settings found.</p>}
-          </div>
-        )}
-      </div>
-
+      <PageHeader title={page.label} description={page.description} />
       <div className="flex flex-col">
-      <Section id="settings-dictation" title="Dictation" className="order-2">
+      {show('dictation') && (
+      <Section id="settings-dictation">
         <Row
           label="Recording mode"
           description="Push to talk records while the shortcut is held; it only works while Inaudio is focused. From other apps the shortcut toggles."
@@ -195,17 +197,28 @@ export function SettingsPage() {
           />
         </Row>
       </Section>
+      )}
 
-      <Section
-        id="settings-read-aloud"
-        title="Read Aloud"
-        description="Hear selected or typed text in a local Kokoro voice."
-        className="order-3"
-      >
+      {show('read-aloud') && (
+      <Section id="settings-read-aloud">
         <ReadAloudSettings tts={settings.tts} status={status} onChange={(patch) => update.mutate({ tts: patch })} />
       </Section>
+      )}
 
-      <Section id="settings-overlay" title="Recording overlay" description="The floating pill that shows what dictation is doing." className="order-3">
+      {show('quality') && (
+      <Section id="settings-quality">
+        <TranscriptQualitySettings
+          live={settings.live}
+          stt={settings.stt}
+          models={status.cleanupModels}
+          onLive={(patch) => update.mutate({ live: patch })}
+          onStt={(patch) => update.mutate({ stt: patch })}
+        />
+      </Section>
+      )}
+
+      {show('overlay') && (
+      <Section id="settings-overlay">
         <OverlaySettings
           overlay={settings.overlay}
           support={status.overlay}
@@ -214,17 +227,32 @@ export function SettingsPage() {
           onChange={(patch) => update.mutate({ overlay: patch })}
         />
       </Section>
+      )}
 
-      <Section id="settings-tray" title="Tray" description="The menu bar icon and what it offers." className="order-4">
+      {show('live-window') && (
+      <Section id="settings-live-window">
+        <LiveWindowSettings
+          liveWindow={settings.liveWindow}
+          support={status.overlay}
+          platform={status.platform}
+          onChange={(patch) => update.mutate({ liveWindow: patch })}
+        />
+      </Section>
+      )}
+
+      {show('tray') && (
+      <Section id="settings-tray">
         <TraySettings
           tray={settings.tray}
           status={status}
           onChange={(patch) => update.mutate({ tray: patch })}
         />
       </Section>
+      )}
 
-      <Section id="settings-shortcuts" title="Shortcuts" description="Accelerators work from any app while Inaudio is running." className="order-5">
-        <Row label="Dictation" description={SHORTCUT_NOTE[status.shortcuts.dictation] ?? undefined}>
+      {show('shortcuts') && (
+      <Section id="settings-shortcuts">
+        <Row id="settings-shortcut-dictation" label="Dictation" description={SHORTCUT_NOTE[status.shortcuts.dictation] ?? undefined}>
           <ShortcutInput
             label="Dictation shortcut"
             value={dictation.shortcut}
@@ -293,9 +321,39 @@ export function SettingsPage() {
             onChange={(toggleShortcut) => update.mutate({ overlay: { toggleShortcut } })}
           />
         </Row>
+        <Row
+          id="settings-shortcut-live"
+          label="Start or stop a live transcript"
+          description={SHORTCUT_NOTE[status.shortcuts.live] ?? 'Records system audio from any app. Off until you set it.'}
+        >
+          <ShortcutInput
+            label="Live transcript shortcut"
+            optional
+            value={settings.live.shortcut}
+            platform={status.platform}
+            status={status.shortcuts.live}
+            onChange={(shortcut) => update.mutate({ live: { shortcut } })}
+          />
+        </Row>
+        <Row
+          id="settings-shortcut-live-window"
+          label="Show or hide the live window"
+          description={SHORTCUT_NOTE[status.shortcuts.liveWindow] ?? 'Off until you set it.'}
+        >
+          <ShortcutInput
+            label="Live window shortcut"
+            optional
+            value={settings.liveWindow.shortcut}
+            platform={status.platform}
+            status={status.shortcuts.liveWindow}
+            onChange={(shortcut) => update.mutate({ liveWindow: { shortcut } })}
+          />
+        </Row>
       </Section>
+      )}
 
-      <Section id="settings-performance" title="Performance" className="order-6">
+      {show('performance') && (
+      <Section id="settings-performance">
         <Row label="CPU threads" description={`Threads used by the speech engine. This computer has ${cpu}.`}>
           <Select
             label="CPU threads"
@@ -335,31 +393,21 @@ export function SettingsPage() {
           />
         </Row>
       </Section>
+      )}
 
-      <Section id="settings-appearance" title="Appearance" className="order-1 pt-0">
-        <div id="settings-theme" className="grid gap-3 py-3">
-          <p className="text-sm font-medium">Theme mode</p>
-          <div role="radiogroup" aria-label="Theme mode" className="grid gap-2 md:grid-cols-3">
-            {(['system', 'light', 'dark'] as const).map((theme) => {
-              const selected = settings.appearance.theme === theme;
-              return (
-                <button
-                  key={theme}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => update.mutate({ appearance: { theme } })}
-                  className={`rounded-[12px] border p-2 text-left transition-colors ${selected ? 'border-accent bg-accent-soft/50 shadow-[0_0_0_1px_var(--accent)]' : 'border-line bg-surface hover:bg-sunken'}`}
-                >
-                  <ThemePreview theme={theme} />
-                  <span className="mt-2 flex items-center justify-between px-1 text-sm font-semibold capitalize">
-                    {theme}
-                    {selected && <Check className="size-4 text-accent" />}
-                  </span>
-                  <span className="block px-1 pt-0.5 text-xs text-muted">{theme === 'dark' ? 'Dark surfaces' : theme === 'light' ? 'Bright surfaces' : 'Follow OS setting'}</span>
-                </button>
-              );
-            })}
+      {show('appearance') && (
+      <Section id="settings-appearance">
+        <div id="settings-theme" className="grid scroll-mt-6 gap-3 pb-5">
+          <p className="text-sm font-medium">Theme</p>
+          <div role="radiogroup" aria-label="Theme" className="grid gap-4 sm:grid-cols-3">
+            {THEMES.map((theme) => (
+              <ThemeCard
+                key={theme.value}
+                theme={theme}
+                selected={settings.appearance.theme === theme.value}
+                onSelect={() => update.mutate({ appearance: { theme: theme.value } })}
+              />
+            ))}
           </div>
         </div>
         <Row id="settings-font-size" label="Font size">
@@ -410,21 +458,35 @@ export function SettingsPage() {
           />
         </Row>
         <Row id="settings-accent" label="Accent color">
-          <Select
-            label="Accent color"
-            className="min-w-32"
-            value={settings.appearance.accentTone}
-            onValueChange={(accentTone) => update.mutate({ appearance: { accentTone } })}
-            options={Object.entries(ACCENT_COLORS).map(([value, color]) => ({
-              value: value as Settings['appearance']['accentTone'],
-              label: value.charAt(0).toUpperCase() + value.slice(1),
-              adornment: <span aria-hidden className="size-3 rounded-full" style={{ backgroundColor: color }} />,
-            }))}
-          />
+          <div role="radiogroup" aria-label="Accent color" className="flex items-center gap-2.5">
+            {(Object.entries(ACCENT_COLORS) as [Settings['appearance']['accentTone'], string][]).map(([tone, color]) => {
+              const selected = settings.appearance.accentTone === tone;
+              const name = tone.charAt(0).toUpperCase() + tone.slice(1);
+              return (
+                <button
+                  key={tone}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  aria-label={name}
+                  title={name}
+                  onClick={() => update.mutate({ appearance: { accentTone: tone } })}
+                  className="grid size-7 place-items-center rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  <span
+                    className="block size-6 rounded-full transition-shadow"
+                    style={{ backgroundColor: color, boxShadow: selected ? `0 0 0 2px var(--surface), 0 0 0 4px ${color}` : undefined }}
+                  />
+                </button>
+              );
+            })}
+          </div>
         </Row>
       </Section>
+      )}
 
-      <Section id="settings-app" title="App" className="order-7">
+      {show('app') && (
+      <Section id="settings-app">
         {status.platform !== 'linux' && (
           <Row label="Open at login">
             <Switch
@@ -441,74 +503,40 @@ export function SettingsPage() {
             onCheckedChange={(closeToTray) => update.mutate({ system: { closeToTray } })}
           />
         </Row>
-        <Row label="Setup" description="Walk through microphone, model and shortcut setup again.">
+        <Row label="Setup" description="Walk through microphone, models and live transcript setup again.">
           <Button size="sm" onClick={() => update.mutate({ onboardingComplete: false })}>
             Run setup
           </Button>
         </Row>
       </Section>
+      )}
 
-      <Section id="settings-about" title="About" className="order-8">
+      {show('updates') && (
+        <UpdateSection
+          status={updateStatus}
+          updates={settings.updates}
+          announcements={settings.announcements}
+          actions={updateActions}
+          onChange={(patch) => update.mutate({ updates: patch })}
+          onAnnouncements={(patch) => update.mutate({ announcements: patch })}
+        />
+      )}
+
+      {show('about') && (
+      <Section id="settings-about">
         <Row label="Data folder" description={<span data-selectable>{status.dataDir}</span>}>
           <Button size="sm" variant="ghost" onClick={() => void api.system.revealModels()}>
             <FolderOpen /> Models
           </Button>
         </Row>
         <Row label="Version" description={`Inaudio ${status.appVersion} · Electron ${status.electronVersion} · ${status.platform} ${status.arch}`} />
-        <Row
-          label="Updates"
-          description={
-            updateStatus?.state === 'available'
-              ? `Version ${updateStatus.availableVersion} is ready to download.`
-              : updateStatus?.state === 'downloading'
-                ? `Downloading ${updateStatus.availableVersion ?? 'update'}${updateStatus.progress === undefined ? '' : ` · ${Math.round(updateStatus.progress)}%`}.`
-                : updateStatus?.state === 'downloaded'
-                  ? `Version ${updateStatus.availableVersion} is ready to install.`
-                  : updateStatus?.state === 'error'
-                    ? updateStatus.error
-                    : updateStatus?.state === 'up-to-date'
-                      ? 'You are using the latest version.'
-                      : updateStatus?.state === 'unavailable'
-                        ? 'Updates are available in packaged builds.'
-                        : 'Check for signed updates from GitHub Releases.'
-          }
-        >
-          <div className="flex flex-wrap justify-end gap-2">
-            {updateStatus?.state === 'downloaded' ? (
-              <Button size="sm" onClick={() => updateActions.install.mutate()} disabled={updateActions.install.isPending}>
-                <Download /> Restart to update
-              </Button>
-            ) : updateStatus?.state === 'available' ? (
-              <Button size="sm" onClick={() => updateActions.download.mutate()} disabled={updateActions.download.isPending}>
-                <Download /> Download
-              </Button>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => updateActions.check.mutate()} disabled={updateActions.check.isPending || updateStatus?.state === 'unavailable'}>
-                <RefreshCw /> Check now
-              </Button>
-            )}
-          </div>
-        </Row>
-        <Row label="Automatic updates" description="Check for updates automatically and download them in the background.">
-          <Switch
-            aria-label="Check for updates automatically"
-            checked={settings.updates.checkAutomatically}
-            onCheckedChange={(checkAutomatically) => update.mutate({ updates: { checkAutomatically } })}
-          />
-        </Row>
-        <Row label="Background downloads" description="Download signed updates without interrupting your work.">
-          <Switch
-            aria-label="Download updates automatically"
-            checked={settings.updates.downloadAutomatically}
-            onCheckedChange={(downloadAutomatically) => update.mutate({ updates: { downloadAutomatically } })}
-          />
-        </Row>
         <Row label="Engine" description="sherpa-onnx, CPU. No network access after models are downloaded.">
           <Button size="sm" variant="ghost" onClick={() => void api.system.openLink('sherpaOnnx')}>
             Project page
           </Button>
         </Row>
       </Section>
+      )}
       </div>
     </div>
   );

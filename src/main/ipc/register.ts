@@ -1,22 +1,35 @@
-import { app, shell } from 'electron';
+import { app, dialog, shell, type SaveDialogOptions } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { voiceSid, type ModelId } from '@shared/domain/models';
-import type { Transcript } from '@shared/domain/history';
+import { MODEL_CATALOG, voiceSid, type ModelId } from '@shared/domain/models';
+import type { ExportFormat, Transcript } from '@shared/domain/history';
+import { exportFileName, exportTranscripts } from '@shared/history/export';
 import type { TranscribeResult } from '@shared/ipc/api';
 import { EVENTS, IPC } from '@shared/ipc/channels';
 import { EXTERNAL_LINKS, schemas } from '@shared/ipc/schemas';
+import { applyReplacements } from '@shared/text/replacements';
 import { openTrustedExternal } from '../security/hardening';
 import type { Services } from '../services/container';
+import { ReleaseNotesService } from '../services/release-notes';
 import { handle, handleOn, listen } from './handle';
 
 const none = z.undefined();
+
+const EXPORT_NAME: Record<ExportFormat, string> = { txt: 'Plain text', md: 'Markdown', json: 'JSON' };
 
 export function registerIpc(services: Services): void {
   const { settings, history, models, stt, tts: synthesis, inserter, paths, companion } = services;
 
   handle(IPC.systemStatus, none, () => services.status());
   handle(IPC.systemOpenLink, schemas.openLink, (id) => openTrustedExternal(EXTERNAL_LINKS[id]));
+  // A fixed OS page, never a URL from the renderer: where an app's output device is chosen.
+  handleOn('main', IPC.systemOpenSoundSettings, none, async () => {
+    if (process.platform === 'win32') await shell.openExternal('ms-settings:apps-volume');
+    else if (process.platform === 'darwin') await shell.openExternal('x-apple.systempreferences:com.apple.preference.sound');
+    else throw new Error('Open your desktop’s sound settings to change an app’s output.');
+  });
   handle(IPC.systemRevealModels, none, async () => {
     await shell.openPath(paths.models);
   });
@@ -57,6 +70,10 @@ export function registerIpc(services: Services): void {
   handle(IPC.updateStatus, none, () => services.updater.get());
   handle(IPC.updateCheck, none, () => services.updater.check());
   handle(IPC.updateDownload, none, () => services.updater.download());
+  // What's new, live from GitHub. Never fetched behind the user's back when they turned
+  // automatic updates off; a click on "Load release notes" is the explicit ask.
+  const releaseNotes = new ReleaseNotesService();
+  handleOn('main', IPC.updateReleaseNotes, schemas.releaseNotes, ({ force }) => releaseNotes.get(force));
   handle(IPC.updateInstall, none, () =>
     services.updater.install(async () => {
       await services.dispose();
@@ -88,7 +105,10 @@ export function registerIpc(services: Services): void {
     const current = settings.get();
     const modelId: ModelId = current.stt.modelId;
     // Synthesis runs in its own worker and queue, so companion speech cannot extend this wait.
-    const result = await services.runModel(modelId, () => stt.transcribe(samples, sampleRate), 100);
+    const cleanup = services.sttCleanup('dictation');
+    const raw = await services.runModel(modelId, () => stt.transcribe(samples, sampleRate, cleanup), 100);
+    // Custom words fix names and terms the engine mishears, before anything is saved or typed.
+    const result = { ...raw, text: applyReplacements(raw.text, current.stt.replacements) };
     const response: TranscribeResult = { transcript: null, text: result.text, inserted: false };
     if (!result.text) return response;
     companion.react('transcription.completed', 'ready');
@@ -101,8 +121,14 @@ export function registerIpc(services: Services): void {
       inferenceMs: result.inferenceMs,
       language: result.language.slice(0, 16),
       createdAt: Date.now(),
+      source: 'microphone',
+      title: '',
+      pinned: false,
     };
-    if (current.dictation.saveHistory) history.add(transcript);
+    if (current.dictation.saveHistory) {
+      history.add(transcript);
+      services.send(EVENTS.historyChanged, null);
+    }
     response.transcript = transcript;
     // The overlay shows the text inline, so this is a no-op unless the overlay is off and
     // the user asked for native notifications.
@@ -134,6 +160,62 @@ export function registerIpc(services: Services): void {
   // the tray submenu and becomes the allow-list for settings:update.
   listen('main', IPC.audioDevices, schemas.audioDevices, (devices) => {
     services.reportDevices(devices);
+  });
+
+  // Live transcripts: only the app window may start, feed or report a session, because it is
+  // the only window the capture grant is ever armed for.
+  handleOn('main', IPC.liveGet, none, () => services.live.snapshot());
+  handleOn('main', IPC.liveStart, schemas.liveStart, (input) => services.live.start(input));
+  handleOn('main', IPC.liveStop, none, () => services.live.stop());
+  handleOn('main', IPC.liveCancel, none, () => services.live.cancel());
+  handleOn('main', IPC.liveChunk, schemas.liveChunk, (chunk) => services.live.chunk(chunk));
+  listen('main', IPC.liveReport, schemas.liveReport, (report) => services.live.report(report));
+  // The provisional line: dropped by the controller whenever the engine has better things to do.
+  handleOn('main', IPC.livePreview, schemas.livePreview, (preview) => services.live.preview(preview));
+  handleOn('main', IPC.liveWindowOpen, none, () => services.liveWindow.show());
+
+  // The floating live window shows a session and asks for a fixed list of things. It cannot
+  // capture, read history or send text: copy reads the transcript the main process holds.
+  handleOn('live', IPC.liveWindowAction, schemas.liveWindowAction, async (action) => {
+    switch (action) {
+      case 'start':
+        return services.live.start({ source: settings.get().live.source, acknowledged: false });
+      case 'stop':
+        return services.live.stop();
+      case 'cancel':
+        return services.live.cancel();
+      case 'copy': {
+        const text = services.live.snapshot().text;
+        if (text) await inserter.copy(text);
+        return;
+      }
+      case 'hide':
+        return services.liveWindow.hide();
+      case 'pin':
+        services.updateSettings({ liveWindow: { alwaysOnTop: !settings.get().liveWindow.alwaysOnTop } });
+        return;
+      case 'collapse':
+        return services.liveWindow.setCollapsed(true);
+      case 'expand':
+        return services.liveWindow.setCollapsed(false);
+      case 'source-system':
+      case 'source-system+mic':
+      case 'source-device':
+        if (services.live.active()) return;
+        services.updateSettings({ live: { source: action === 'source-system' ? 'system' : action === 'source-device' ? 'device' : 'system+mic' } });
+        return;
+      case 'open-app':
+      case 'open-audio': {
+        const win = services.window();
+        if (!win || win.isDestroyed()) {
+          services.showWindow();
+          return;
+        }
+        win.show();
+        win.focus();
+        win.webContents.send(EVENTS.command, action === 'open-audio' ? 'navigate:audio' : 'navigate:live');
+      }
+    }
   });
 
   // The overlay may only ask for its fixed command list, and only from the overlay window.
@@ -183,6 +265,30 @@ export function registerIpc(services: Services): void {
       services.readAloud.stop();
       return;
     }
+    if (command === 'live-stop') {
+      services.live.stop();
+      return;
+    }
+    if (command === 'live-cancel') {
+      services.live.cancel();
+      return;
+    }
+    if (command === 'live-window') {
+      services.liveWindow.toggle();
+      return;
+    }
+    if (command === 'reset-position') {
+      services.updateSettings({ overlay: { customX: null, customY: null } });
+      return;
+    }
+    if (command === 'open-latest' || command === 'open-history') {
+      services.showWindow();
+      const target = services.window();
+      if (target && !target.isDestroyed()) {
+        target.webContents.send(EVENTS.command, command === 'open-latest' ? 'history:open-latest' : 'navigate:history');
+      }
+      return;
+    }
     // open-app and open-audio both need the real window, which the overlay does not own.
     const win = services.window();
     if (!win || win.isDestroyed()) return;
@@ -193,6 +299,14 @@ export function registerIpc(services: Services): void {
   // Hover is a hint, not a command: it only widens what the pill can receive.
   listen('overlay', IPC.overlayHover, schemas.overlayHover, (hovering) => {
     services.overlay.setHover(hovering);
+  });
+  // Dragging by the handle moves the overlay window; main keeps it on a screen and saves it.
+  listen('overlay', IPC.overlayDrag, schemas.overlayDrag, ({ phase, x, y }) => {
+    services.overlay.dragTo(phase, x, y);
+  });
+  // The live window has no native frame to resize by, so its edges report pointer moves.
+  listen('live', IPC.liveWindowResize, schemas.liveWindowResize, ({ phase, edge, x, y }) => {
+    services.liveWindow.resizeTo(phase, edge, x, y);
   });
   // A menu opening is not a command either: it only grows the window so the panel fits.
   listen('overlay', IPC.overlayMenu, schemas.overlayMenu, (open) => {
@@ -221,9 +335,40 @@ export function registerIpc(services: Services): void {
     }
   });
 
-  handle(IPC.historyList, schemas.historyQuery, (query) => history.list(query));
-  handle(IPC.historyRemove, schemas.historyId, (id) => history.remove(id));
-  handle(IPC.historyClear, none, () => history.clear());
+  // Saved transcripts are only ever read or changed by the app window. The overlay, the
+  // companion and the live window never see History.
+  handleOn('main', IPC.historyList, schemas.historyQuery, (query) => history.list(query));
+  handleOn('main', IPC.historyRemove, schemas.historyId, (id) => {
+    history.remove(id);
+    services.send(EVENTS.historyChanged, null);
+  });
+  handleOn('main', IPC.historyClear, none, () => {
+    history.clear();
+    services.send(EVENTS.historyChanged, null);
+  });
+  handleOn('main', IPC.historyUpdate, schemas.historyUpdate, ({ id, patch }) => {
+    const saved = history.update(id, patch);
+    services.send(EVENTS.historyChanged, null);
+    return saved;
+  });
+  handleOn('main', IPC.historyExport, schemas.historyExport, async ({ ids, kind, format }) => {
+    const items = ids ? history.getMany(ids) : history.all(kind);
+    if (!items.length) return 0;
+    const options: SaveDialogOptions = {
+      title: items.length === 1 ? 'Export transcript' : `Export ${items.length} transcripts`,
+      defaultPath: path.join(app.getPath('documents'), exportFileName(items, format)),
+      filters: [{ name: EXPORT_NAME[format], extensions: [format] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    };
+    const parent = services.window();
+    const result = parent && !parent.isDestroyed() ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return 0;
+    // The path comes from the native dialog only; the extension is forced to the format.
+    const file = path.extname(result.filePath).toLowerCase() === `.${format}` ? result.filePath : `${result.filePath}.${format}`;
+    const body = exportTranscripts(items, format, { model: (id) => MODEL_CATALOG[id as ModelId]?.name ?? id });
+    await fs.promises.writeFile(file, body, { encoding: 'utf8', mode: 0o600 });
+    return items.length;
+  });
   handle(IPC.companionGet, none, () => companion.snapshot());
   handle(IPC.companionSelect, schemas.companionId, (id) => companion.select(id));
   handle(IPC.companionVisibility, schemas.companionVisibility, (visible) => {

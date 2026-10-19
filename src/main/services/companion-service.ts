@@ -31,6 +31,7 @@ export class CompanionService extends EventEmitter<{
   private revision = 0;
   private dictating = false;
   private reading = false;
+  private live = false;
   private sleepingTimer: NodeJS.Timeout | null = null;
   private focusTimer: NodeJS.Timeout | null = null;
   private hoverTimer: NodeJS.Timeout | null = null;
@@ -51,8 +52,15 @@ export class CompanionService extends EventEmitter<{
       state: this.state,
       event: this.lastEvent,
       revision: this.revision,
-      dictating: this.dictating || this.reading,
+      dictating: this.dictating || this.reading || this.live,
     };
+  }
+
+  /** A live transcript is recording system audio, so a spoken line would end up in it. */
+  setLive(active: boolean): void {
+    if (this.live === active) return;
+    this.live = active;
+    this.emitChanged();
   }
 
   /** Read Aloud is speaking, so the companion holds its own lines the same way it does for dictation. */

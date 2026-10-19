@@ -19,12 +19,14 @@ const api: InaudioApi = {
     revealModels: () => ipcRenderer.invoke(IPC.systemRevealModels),
     window: (action) => ipcRenderer.invoke(IPC.systemWindow, action),
     menu: (command) => ipcRenderer.invoke(IPC.systemMenu, command),
+    openSoundSettings: () => ipcRenderer.invoke(IPC.systemOpenSoundSettings),
   },
   updates: {
     status: () => ipcRenderer.invoke(IPC.updateStatus),
     check: () => ipcRenderer.invoke(IPC.updateCheck),
     download: () => ipcRenderer.invoke(IPC.updateDownload),
     install: () => ipcRenderer.invoke(IPC.updateInstall),
+    releaseNotes: (force) => ipcRenderer.invoke(IPC.updateReleaseNotes, { force }),
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
@@ -49,10 +51,25 @@ const api: InaudioApi = {
   audio: {
     report: (devices) => ipcRenderer.send(IPC.audioDevices, devices),
   },
+  live: {
+    get: () => ipcRenderer.invoke(IPC.liveGet),
+    start: (input) => ipcRenderer.invoke(IPC.liveStart, input),
+    stop: () => ipcRenderer.invoke(IPC.liveStop),
+    cancel: () => ipcRenderer.invoke(IPC.liveCancel),
+    chunk: (chunk) => ipcRenderer.invoke(IPC.liveChunk, chunk),
+    report: (report) => ipcRenderer.send(IPC.liveReport, report),
+    preview: (preview) => ipcRenderer.invoke(IPC.livePreview, preview),
+    openWindow: () => ipcRenderer.invoke(IPC.liveWindowOpen),
+  },
+  liveWindow: {
+    act: (action) => ipcRenderer.invoke(IPC.liveWindowAction, action),
+    resize: (phase, edge, x, y) => ipcRenderer.send(IPC.liveWindowResize, { phase, edge, x: Math.round(x), y: Math.round(y) }),
+  },
   overlay: {
     act: (action) => ipcRenderer.invoke(IPC.overlayAction, action),
     hover: (hovering) => ipcRenderer.send(IPC.overlayHover, hovering),
     menu: (open) => ipcRenderer.send(IPC.overlayMenu, open),
+    drag: (phase, x, y) => ipcRenderer.send(IPC.overlayDrag, { phase, x: Math.round(x), y: Math.round(y) }),
   },
   text: {
     insert: (text) => ipcRenderer.invoke(IPC.textInsert, text),
@@ -71,6 +88,8 @@ const api: InaudioApi = {
     list: (query) => ipcRenderer.invoke(IPC.historyList, query),
     remove: (id) => ipcRenderer.invoke(IPC.historyRemove, id),
     clear: () => ipcRenderer.invoke(IPC.historyClear),
+    update: (id, patch) => ipcRenderer.invoke(IPC.historyUpdate, { id, patch }),
+    export: (input) => ipcRenderer.invoke(IPC.historyExport, input),
   },
   companions: {
     get: () => ipcRenderer.invoke(IPC.companionGet),
@@ -91,6 +110,11 @@ const api: InaudioApi = {
     onReadAloudSession: (listener) => subscribe(EVENTS.readAloudSession, listener),
     onReadAloudState: (listener) => subscribe(EVENTS.readAloudState, listener),
     onReadAloudChunk: (listener) => subscribe(EVENTS.readAloudChunk, listener),
+    onLiveState: (listener) => subscribe(EVENTS.liveState, listener),
+    onLiveCommand: (listener) => subscribe(EVENTS.liveCommand, listener),
+    onLiveWindowState: (listener) => subscribe(EVENTS.liveWindowState, listener),
+    onLiveWindowLevel: (listener) => subscribe(EVENTS.liveWindowLevel, listener),
+    onHistoryChanged: (listener) => subscribe(EVENTS.historyChanged, listener),
   },
 };
 

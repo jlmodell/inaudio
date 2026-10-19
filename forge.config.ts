@@ -28,12 +28,16 @@ const config: ForgeConfig = {
     icon: 'assets/icons/icon',
     // app-update.yml lands in resources/, where electron-updater reads it on every download.
     // `electron-builder --prepackaged` never writes it, so it ships from here.
-    extraResource: ['assets/icons', 'assets/app-update.yml'],
+    // The two small speech-cleanup models land in resources/models, hash-checked before use.
+    extraResource: ['assets/icons', 'assets/app-update.yml', 'assets/models'],
     asar: {
       unpack: '**/node_modules/sherpa-onnx-*/**/*.{node,so,so.*,dylib,dll}',
     },
     extendInfo: {
       NSMicrophoneUsageDescription: 'Inaudio transcribes your voice on this computer.',
+      // Required for the CoreAudio tap behind system-audio capture on macOS 14.2+; without it
+      // Chromium hands back a silent, already-ended track and reports no error.
+      NSAudioCaptureUsageDescription: 'Inaudio transcribes audio playing on this computer when you start a live transcript.',
     },
   },
   hooks: {

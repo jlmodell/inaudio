@@ -6,7 +6,7 @@ import { assertTrustedSender } from './trusted-origin';
  * check this on top of the origin check, so the overlay cannot drive audio capture and
  * the main window cannot speak for the overlay.
  */
-export type Surface = 'main' | 'overlay' | 'companion';
+export type Surface = 'main' | 'overlay' | 'companion' | 'live';
 
 const surfaces = new Map<number, Surface>();
 
@@ -17,6 +17,10 @@ export function registerSurface(contents: WebContents, surface: Surface): void {
 
 export function surfaceOf(event: IpcMainInvokeEvent | IpcMainEvent): Surface | null {
   return surfaces.get(event.sender.id) ?? null;
+}
+
+export function surfaceOfContents(contents: WebContents): Surface | null {
+  return surfaces.get(contents.id) ?? null;
 }
 
 /** Throws unless the sender is a trusted top-level frame in the expected window. */

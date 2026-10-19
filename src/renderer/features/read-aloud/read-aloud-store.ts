@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   IDLE_READ_ALOUD,
+  MAX_READ_ALOUD_CHARS,
   READ_ALOUD_KEEP_BEHIND,
   type ReadAloudChunk,
   type ReadAloudControl,
@@ -13,14 +14,26 @@ import { api, errorMessage } from '@renderer/lib/api';
 import { encodeWav, SegmentPlayer } from '@renderer/lib/audio-player';
 import { keys, queryClient } from '@renderer/lib/queries';
 
+/** Where a session's text came from inside the app, such as a History transcript. */
+export interface ReadAloudOrigin {
+  /** Whatever the caller uses to know its item again, e.g. a transcript id. */
+  id: string;
+  title: string;
+  /** Only the first MAX_READ_ALOUD_CHARS were sent. */
+  truncated: boolean;
+}
+
 interface ReadAloudStore {
   session: ReadAloudSession | null;
+  /** The in-app origin of the current session, or null for selections, the clipboard and typing. */
+  origin: ReadAloudOrigin | null;
   state: ReadAloudState;
   /** Segments held for replay and export, so the page can tell whether Save WAV has everything. */
   cached: number;
   /** A start that failed before the main process took it, such as an invalid request. */
   error: string | null;
-  readText(text: string): Promise<void>;
+  /** Reads text typed or pasted here, or, with `origin`, an item from elsewhere in the app. */
+  readText(text: string, origin?: { id: string; title: string }): Promise<void>;
   readClipboard(): Promise<void>;
   control(action: Exclude<ReadAloudControl['action'], 'seek'>): void;
   seek(index: number): void;
@@ -36,6 +49,8 @@ let bufferSession: string | null = null;
 let bufferTake = 0;
 /** The segment last started, so a repeated state push does not restart it. */
 let started: { sessionId: string; index: number; seek: number } | null = null;
+/** The origin of a start still on its way to the main process; its session takes it on. */
+let pendingOrigin: ReadAloudOrigin | null = null;
 
 function settings(): Settings | undefined {
   return queryClient.getQueryData<Settings>(keys.settings);
@@ -113,18 +128,29 @@ function onState(state: ReadAloudState): void {
   }
 }
 
+function onSession(session: ReadAloudSession): void {
+  const origin = session.source === 'manual' ? pendingOrigin : null;
+  pendingOrigin = null;
+  useReadAloud.setState({ session, origin });
+}
+
 export const useReadAloud = create<ReadAloudStore>((set, get) => ({
   session: null,
+  origin: null,
   state: { ...IDLE_READ_ALOUD },
   cached: 0,
   error: null,
 
-  async readText(text) {
+  async readText(text, origin) {
     set({ error: null });
+    const truncated = text.length > MAX_READ_ALOUD_CHARS;
+    pendingOrigin = origin ? { ...origin, truncated } : null;
     try {
-      await api.readAloud.start({ source: 'manual', text });
+      await api.readAloud.start({ source: 'manual', text: truncated ? text.slice(0, MAX_READ_ALOUD_CHARS) : text });
     } catch (error) {
+      pendingOrigin = null;
       set({ error: errorMessage(error) });
+      if (origin) toast(errorMessage(error), { tone: 'danger' });
     }
   },
 
@@ -176,7 +202,7 @@ export const useReadAloud = create<ReadAloudStore>((set, get) => ({
  */
 export function connectReadAloud(): () => void {
   const offs = [
-    api.events.onReadAloudSession((session) => useReadAloud.setState({ session })),
+    api.events.onReadAloudSession(onSession),
     api.events.onReadAloudState(onState),
     api.events.onReadAloudChunk(onChunk),
     api.events.onSettingsChanged((next) => player.setVolume(next.tts.volume)),

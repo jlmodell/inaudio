@@ -1,10 +1,18 @@
 import { z } from 'zod';
 import { modelIdSchema, voiceIdSchema } from '../domain/models';
-import { historyQuerySchema, MAX_TRANSCRIPT_CHARS } from '../domain/history';
+import { CHUNK_CUTS, LIVE_MAX_CHUNK_SAMPLES, liveSourceSchema } from '../domain/capture';
+import {
+  EXPORT_FORMATS,
+  HISTORY_KINDS,
+  historyQuerySchema,
+  historyUpdateSchema,
+  MAX_EXPORT_ITEMS,
+  MAX_SESSION_TRANSCRIPT_CHARS,
+} from '../domain/history';
 import { deviceIdSchema, settingsPatchSchema } from '../domain/settings';
 import { COMPANION_IDS } from '../domain/companion';
 import { MAX_READ_ALOUD_CHARS } from '../domain/read-aloud';
-import type { AppMenuCommand, WindowAction } from '../domain/system';
+import type { AppMenuCommand, LiveWindowAction, WindowAction } from '../domain/system';
 
 /** 16 kHz mono float32 for at most 10 minutes. */
 export const MAX_AUDIO_SAMPLES = 16_000 * 60 * 10;
@@ -22,6 +30,7 @@ export const EXTERNAL_LINKS = {
   nemotron: 'https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b',
   kokoro: 'https://huggingface.co/hexgrad/Kokoro-82M',
   sherpaOnnx: 'https://github.com/k2-fsa/sherpa-onnx',
+  releases: 'https://github.com/shikki841/inaudio/releases',
 } as const;
 export type ExternalLinkId = keyof typeof EXTERNAL_LINKS;
 
@@ -71,14 +80,85 @@ export const schemas = {
         'read-pause',
         'read-resume',
         'read-stop',
+        'live-stop',
+        'live-cancel',
+        'live-window',
+        'open-latest',
+        'open-history',
+        'reset-position',
       ]),
     }),
     z.object({ type: z.literal('select-microphone'), id: deviceIdSchema }),
     z.object({ type: z.literal('select-model'), id: modelIdSchema }),
   ]),
   overlayHover: z.boolean(),
+  // Pointer positions in screen DIPs while the pill is dragged by its handle.
+  overlayDrag: z
+    .object({
+      phase: z.enum(['start', 'move', 'end']),
+      x: z.number().int().min(-100_000).max(100_000),
+      y: z.number().int().min(-100_000).max(100_000),
+    })
+    .strict(),
+  liveWindowResize: z
+    .object({
+      phase: z.enum(['start', 'move', 'end']),
+      edge: z.enum(['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']),
+      x: z.number().int().min(-100_000).max(100_000),
+      y: z.number().int().min(-100_000).max(100_000),
+    })
+    .strict(),
   overlayMenu: z.boolean(),
-  text: z.string().min(1).max(MAX_TRANSCRIPT_CHARS),
+  // A saved live session can be copied or typed from History, so this takes the session cap.
+  text: z.string().min(1).max(MAX_SESSION_TRANSCRIPT_CHARS),
+  liveStart: z.object({ source: liveSourceSchema, acknowledged: z.boolean() }).strict(),
+  liveChunk: z
+    .object({
+      sessionId: z.string().uuid(),
+      seq: z.number().int().min(0).max(1_000_000),
+      samples: z
+        .instanceof(Float32Array)
+        .refine((a) => a.length > 0 && a.length <= LIVE_MAX_CHUNK_SAMPLES, 'Chunk length out of range'),
+      cut: z.enum(CHUNK_CUTS),
+      pauseBeforeMs: z.number().int().min(0).max(24 * 60 * 60 * 1000),
+      overlapMs: z.number().int().min(0).max(5_000),
+    })
+    .strict(),
+  // The same shape as a chunk: it is the unfinished stretch the next chunk will hold.
+  livePreview: z
+    .object({
+      sessionId: z.string().uuid(),
+      seq: z.number().int().min(0).max(1_000_000),
+      samples: z
+        .instanceof(Float32Array)
+        .refine((a) => a.length > 0 && a.length <= LIVE_MAX_CHUNK_SAMPLES, 'Preview length out of range'),
+    })
+    .strict(),
+  liveWindowAction: z.enum([
+    'start',
+    'stop',
+    'cancel',
+    'copy',
+    'open-app',
+    'open-audio',
+    'hide',
+    'pin',
+    'collapse',
+    'expand',
+    'source-system',
+    'source-system+mic',
+    'source-device',
+  ] as [LiveWindowAction, ...LiveWindowAction[]]),
+  liveReport: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('capturing'), sessionId: z.string().uuid(), ownAudioFiltered: z.boolean() }).strict(),
+    z.object({ type: z.literal('level'), sessionId: z.string().uuid(), level: z.number().min(0).max(1) }).strict(),
+    z
+      .object({ type: z.literal('ended'), sessionId: z.string().uuid(), reason: z.enum(['stopped', 'track-ended']) })
+      .strict(),
+    z
+      .object({ type: z.literal('error'), sessionId: z.string().uuid(), message: z.string().max(MAX_STATE_MESSAGE_CHARS) })
+      .strict(),
+  ]),
   speak: z.object({
     text: z.string().trim().min(1).max(MAX_TTS_CHARS),
     voiceId: voiceIdSchema.optional(),
@@ -107,6 +187,16 @@ export const schemas = {
   ]),
   historyQuery: historyQuerySchema,
   historyId: z.string().uuid(),
+  releaseNotes: z.object({ force: z.boolean() }).strict(),
+  historyUpdate: z.object({ id: z.string().uuid(), patch: historyUpdateSchema }).strict(),
+  // Ids, or a whole view. Never a path: the user picks the file in the native save dialog.
+  historyExport: z
+    .object({
+      ids: z.array(z.string().uuid()).min(1).max(MAX_EXPORT_ITEMS).optional(),
+      kind: z.enum(HISTORY_KINDS).default('all'),
+      format: z.enum(EXPORT_FORMATS),
+    })
+    .strict(),
   windowAction: z.enum(['minimize', 'maximize-toggle', 'close'] as [
     WindowAction,
     ...WindowAction[],
@@ -116,6 +206,7 @@ export const schemas = {
     'file.run-setup',
     'file.quit',
     'view.dictation',
+    'view.live',
     'view.history',
     'view.read-aloud',
     'view.models',

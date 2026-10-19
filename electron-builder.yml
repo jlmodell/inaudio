@@ -17,6 +17,13 @@ win:
       arch:
         - x64
   icon: assets/icons/icon.ico
+# An assisted installer with Inaudio's own pages (assets/installer/installer.nsh), still per user
+# and without administrator rights. Updates skip every page: the app installs them silently.
+nsis:
+  oneClick: false
+  perMachine: false
+  include: assets/installer/installer.nsh
+  installerHeader: out/installer-art/header.bmp
 mac:
   category: public.app-category.utilities
   target:
