@@ -18,9 +18,23 @@
   <a href="https://github.com/shikki841/inaudio/issues/new/choose">Report an issue</a>
 </p>
 
+## See it work
+
+<p align="center">
+  <a href="https://github.com/shikki841/inaudio/releases/download/v1.10.0/inaudio-demo.mp4">
+    <img src="docs/media/inaudio-demo.gif" width="880" alt="Inaudio demo: dictating into Notepad, a live transcript of system audio in the app and in the floating window, the audio settings, Read Aloud, and History with its text blurred" />
+  </a>
+</p>
+<p align="center">
+  <a href="https://github.com/shikki841/inaudio/releases/download/v1.10.0/inaudio-demo.mp4">Watch the full recording with sound</a> (about 4 minutes, recorded on Windows from a real run; History text is blurred).
+</p>
+
 ## Speak. Edit. Keep going.
 
 - Dictate with a keyboard shortcut and keep a searchable transcript history.
+- Transcribe what your computer plays, such as a meeting or a video, as it is heard. Grey provisional text keeps up with the speech, and a small floating window shows the transcript without opening Inaudio.
+- Pick the source: system audio, system audio with your microphone, or one audio device such as a virtual cable.
+- Clean up noise on the device: a voice detector skips stretches without speech, and an optional speech cleanup model filters background noise.
 - Read text or your clipboard aloud with on-device speech synthesis.
 - Manage speech models, microphone settings, and playback in one desktop app.
 
