@@ -1,22 +1,22 @@
 import { Copy, Loader2, Mic, Square, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { transcriptTitle, wordCount, type Transcript } from '@shared/domain/history';
+import { useEffect, useMemo, useState } from 'react';
+import type { Transcript } from '@shared/domain/history';
 import { MODEL_CATALOG } from '@shared/domain/models';
+import { LevelWave, RecentItem, Stat, WeekBars } from '@renderer/components/ui/activity';
 import { Button } from '@renderer/components/ui/button';
 import { IconButton } from '@renderer/components/ui/icon-button';
 import { Badge, Kbd, Notice, PageHeader } from '@renderer/components/ui/layout';
 import { useMediaDevices } from '@renderer/features/audio/use-devices';
-import { ReadAloudButton, useReadingState } from '@renderer/features/read-aloud/read-aloud-controls';
+import { ReadAloudButton } from '@renderer/features/read-aloud/read-aloud-controls';
 import { api } from '@renderer/lib/api';
 import { cn } from '@renderer/lib/cn';
-import { formatAccelerator, formatDuration, formatTime, groupByDay } from '@renderer/lib/format';
+import { formatAccelerator, formatDuration, groupByDay } from '@renderer/lib/format';
 import { useHistory, useSettings, useSystemStatus } from '@renderer/lib/queries';
+import { weekOf } from '@renderer/lib/week';
 import { useDictation } from '@renderer/stores/dictation-store';
 import { useUi } from '@renderer/stores/ui-store';
 
-const WAVE_BARS = 64;
 const RECENT = 4;
-const DAY_MS = 86_400_000;
 
 function useElapsed(startedAt: number | null) {
   const [now, setNow] = useState(Date.now());
@@ -40,125 +40,10 @@ function LevelRing() {
   );
 }
 
-/**
- * The last few seconds of input as a wide, scrolling waveform. Still and faint while idle,
- * frozen and dimmed while the take is transcribed.
- */
-function LevelWave({ active, busy }: { active: boolean; busy: boolean }) {
+/** Only this piece follows the input level, so the page does not re-render with it. */
+function DictationWave({ active, busy }: { active: boolean; busy: boolean }) {
   const level = useDictation((s) => (active ? s.level : 0));
-  const latest = useRef(level);
-  latest.current = level;
-  const [history, setHistory] = useState<number[]>(() => Array(WAVE_BARS).fill(0));
-
-  useEffect(() => {
-    if (!active) {
-      if (!busy) setHistory(Array(WAVE_BARS).fill(0));
-      return;
-    }
-    const id = setInterval(() => setHistory((h) => [...h.slice(1), latest.current]), 60);
-    return () => clearInterval(id);
-  }, [active, busy]);
-
-  return (
-    <div aria-hidden className="flex h-14 w-full items-center justify-between gap-[2px]">
-      {history.map((value, index) => (
-        <span
-          key={index}
-          className={cn('w-1 shrink-0 rounded-full transition-[height] duration-75', active ? 'bg-accent' : busy ? 'bg-accent/40' : 'bg-line-strong')}
-          style={{ height: `${Math.max(4, Math.min(56, Math.sqrt(value) * 70))}px` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-interface Week {
-  words: number;
-  takes: number;
-  /** Words a minute across the week's takes, 0 when there is nothing to measure. */
-  pace: number;
-  /** Words per day, oldest first, today last. */
-  days: number[];
-}
-
-/** The last seven days of saved dictations, counted on this computer. */
-function weekOf(items: Transcript[], now = Date.now()): Week {
-  const today = new Date(new Date(now).toDateString()).getTime();
-  const start = today - 6 * DAY_MS;
-  const days = Array<number>(7).fill(0);
-  let words = 0;
-  let takes = 0;
-  let ms = 0;
-  for (const item of items) {
-    if (item.createdAt < start) continue;
-    const count = wordCount(item.text);
-    const day = Math.min(6, Math.floor((item.createdAt - start) / DAY_MS));
-    days[day] = (days[day] ?? 0) + count;
-    words += count;
-    takes += 1;
-    ms += item.durationMs;
-  }
-  return { words, takes, pace: ms > 5_000 ? Math.round(words / (ms / 60_000)) : 0, days };
-}
-
-function Stat({ label, value, unit, children }: { label: string; value: string; unit?: string; children?: ReactNode }) {
-  return (
-    <div className="grid gap-1.5 rounded-[12px] border border-line bg-surface px-[18px] py-4">
-      <span className="text-xs text-muted">{label}</span>
-      <div className="flex items-end justify-between gap-3">
-        <span className="text-2xl font-semibold tabular-nums">
-          {value}
-          {unit && <span className="ml-1.5 text-[13px] font-medium text-muted">{unit}</span>}
-        </span>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function WeekBars({ days }: { days: number[] }) {
-  const max = Math.max(1, ...days);
-  return (
-    <span aria-hidden className="flex h-[30px] items-end gap-1">
-      {days.map((value, index) => (
-        <i
-          key={index}
-          className={cn('block w-2 rounded-[3px]', index === days.length - 1 ? 'bg-accent' : 'bg-line-strong')}
-          style={{ height: `${Math.max(12, (value / max) * 100)}%` }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/** One recent take: its words, when, and Read aloud and Copy within reach. */
-function Take({ item, fresh, inferenceMs }: { item: Transcript; fresh: boolean; inferenceMs?: number }) {
-  const reading = useReadingState(item.id);
-  const words = wordCount(item.text);
-  return (
-    <li
-      className={cn(
-        'group flex items-start gap-3 rounded-[10px] px-3.5 py-3 transition-colors hover:bg-sunken',
-        (fresh || reading !== 'idle') && 'bg-accent-soft hover:bg-accent-soft',
-      )}
-    >
-      <div className="grid min-w-0 flex-1 gap-1">
-        <p data-selectable className="m-0 text-[15px] leading-relaxed whitespace-pre-wrap break-words">
-          {item.text}
-        </p>
-        <span className="text-xs text-faint tabular-nums">
-          {fresh ? 'Just now' : formatTime(item.createdAt)} · {formatDuration(item.durationMs)} · {words.toLocaleString()} {words === 1 ? 'word' : 'words'}
-          {fresh && inferenceMs !== undefined ? ` · ${(inferenceMs / 1000).toFixed(2)} s on device` : ''}
-        </span>
-      </div>
-      <span className={cn('flex shrink-0 items-center gap-1', !fresh && reading === 'idle' && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100')}>
-        <ReadAloudButton id={item.id} title={transcriptTitle(item)} text={item.text} />
-        <IconButton label="Copy transcript" size="icon-sm" onClick={() => void api.text.copy(item.text)}>
-          <Copy />
-        </IconButton>
-      </span>
-    </li>
-  );
+  return <LevelWave level={level} active={active} busy={busy} />;
 }
 
 export function DictationPage() {
@@ -243,7 +128,7 @@ export function DictationPage() {
               </Button>
             )}
           </div>
-          <LevelWave active={listening} busy={busy} />
+          <DictationWave active={listening} busy={busy} />
           <p className="m-0 text-sm text-muted">
             {listening ? (
               <span className="inline-flex flex-wrap items-center gap-2">
@@ -286,7 +171,12 @@ export function DictationPage() {
                   </div>
                   <ul className="m-0 grid list-none gap-0.5 p-0">
                     {group.items.map((item) => (
-                      <Take key={item.id} item={item} fresh={fresh(item)} inferenceMs={fresh(item) ? last?.inferenceMs : undefined} />
+                      <RecentItem
+                        key={item.id}
+                        item={item}
+                        fresh={fresh(item)}
+                        detail={fresh(item) && last ? `${(last.inferenceMs / 1000).toFixed(2)} s on device` : undefined}
+                      />
                     ))}
                   </ul>
                 </div>

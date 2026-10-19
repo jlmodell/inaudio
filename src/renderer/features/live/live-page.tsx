@@ -1,20 +1,24 @@
 import { Copy, History, Loader2, MonitorSpeaker, PictureInPicture2, Square, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { needsDisplayCapture, type LiveSource } from '@shared/domain/capture';
 import { MODEL_CATALOG } from '@shared/domain/models';
+import { LevelWave, RecentItem, Stat, WeekBars } from '@renderer/components/ui/activity';
 import { Button } from '@renderer/components/ui/button';
 import { IconButton } from '@renderer/components/ui/icon-button';
-import { Badge, Kbd, Notice, PageHeader, StatusDot } from '@renderer/components/ui/layout';
+import { Badge, Kbd, Notice, PageHeader } from '@renderer/components/ui/layout';
 import { Segmented } from '@renderer/components/ui/segmented';
-import { LevelMeter } from '@renderer/features/dictation/level-meter';
+import { ReadAloudButton } from '@renderer/features/read-aloud/read-aloud-controls';
 import { api } from '@renderer/lib/api';
 import { cn } from '@renderer/lib/cn';
-import { formatAccelerator, formatDuration } from '@renderer/lib/format';
-import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
+import { formatAccelerator, formatDuration, groupByDay } from '@renderer/lib/format';
+import { useHistory, useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
+import { weekOf } from '@renderer/lib/week';
 import { useUi } from '@renderer/stores/ui-store';
 import { ConsentDialog } from './consent-dialog';
 import { useLive } from './live-store';
 import { SavedSessionsDrawer } from './saved-sessions';
+
+const RECENT = 3;
 
 const SOURCES: { value: LiveSource; label: string }[] = [
   { value: 'system', label: 'System audio' },
@@ -32,10 +36,32 @@ function useElapsed(startedAt: number) {
   return startedAt ? now - startedAt : 0;
 }
 
-/** The meter re-renders on every level change, so only it subscribes to the level. */
-function LiveMeter({ active }: { active: boolean }) {
+/** Only the waveform follows the input level, so the page does not re-render with it. */
+function LiveWave({ active, busy }: { active: boolean; busy: boolean }) {
   const level = useLive((s) => (active ? s.level : 0));
-  return <LevelMeter level={level} active={active} />;
+  return <LevelWave level={level} active={active} busy={busy} />;
+}
+
+/** "42 min" or "1 h 12 min": time transcribed, at a glance. */
+function formatSpan(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/** Keeps the end of a growing transcript in view, unless the reader has scrolled up. */
+function useFollow(text: string, follow: boolean) {
+  const box = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  useEffect(() => {
+    const el = box.current;
+    if (el && follow && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [text, follow]);
+  const onScroll = () => {
+    const el = box.current;
+    if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
+  return { box, onScroll };
 }
 
 export function LivePage() {
@@ -50,6 +76,9 @@ export function LivePage() {
   const [asking, setAsking] = useState(false);
   const [sessions, setSessions] = useState(false);
   const elapsed = useElapsed(live.phase === 'capturing' ? live.startedAt : 0);
+  const { data: history } = useHistory({ kind: 'live', limit: 200, offset: 0 });
+  const week = useMemo(() => weekOf(history?.items ?? []), [history]);
+  const follow = useFollow(live.text + live.preview, live.phase === 'capturing');
   if (!settings || !status) return null;
 
   const support = status.systemAudio;
@@ -99,6 +128,8 @@ export function LivePage() {
         : 'Ready';
   const pendingSeconds = Math.ceil(live.pendingMs / 1000);
   const hasText = live.text.length > 0;
+  const recent = (history?.items ?? []).slice(0, RECENT);
+  const showTranscript = active || hasText || (live.phase !== 'error' && !!live.message);
 
   return (
     <div className="grid gap-6">
@@ -116,17 +147,6 @@ export function LivePage() {
           </>
         }
       />
-
-      <div className="-mt-2 flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-muted">Source</span>
-        <Segmented<LiveSource>
-          label="Audio source"
-          value={source}
-          disabled={active}
-          onValueChange={(next) => update.mutate({ live: { source: next } })}
-          options={SOURCES}
-        />
-      </div>
 
       {!available && (
         <Notice
@@ -159,7 +179,7 @@ export function LivePage() {
         <Notice tone="danger">{requestError ?? live.message}</Notice>
       )}
 
-      <section className="flex items-center gap-5 border-b border-line pb-6">
+      <section className="grid grid-cols-[auto_1fr] items-center gap-7 rounded-[16px] border border-line bg-sunken px-7 py-6">
         <button
           type="button"
           onClick={onPress}
@@ -167,26 +187,31 @@ export function LivePage() {
           aria-pressed={capturing}
           aria-label={capturing ? 'Stop live transcript' : 'Start live transcript'}
           className={cn(
-            'relative grid size-16 shrink-0 place-items-center rounded-full transition-colors disabled:opacity-40',
-            capturing ? 'bg-record text-white shadow-[0_0_0_6px_var(--record-soft)]' : 'bg-accent text-on-accent hover:bg-accent-hover',
+            'relative grid size-24 place-items-center rounded-full outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent disabled:opacity-40',
+            capturing ? 'bg-record text-white shadow-[0_0_0_10px_var(--record-soft)]' : 'bg-accent text-on-accent hover:bg-accent-hover',
           )}
         >
           {starting || finishing ? (
-            <Loader2 aria-hidden className={cn('size-6', settings.appearance.animations === 'full' && 'animate-spin')} />
+            <Loader2 aria-hidden className={cn('size-9', settings.appearance.animations === 'full' && 'animate-spin')} />
           ) : capturing ? (
-            <Square aria-hidden className="size-6 fill-current" />
+            <Square aria-hidden className="size-8 fill-current" />
           ) : (
-            <MonitorSpeaker aria-hidden className="size-7" />
+            <MonitorSpeaker aria-hidden className="size-10" />
           )}
         </button>
-        <div className="grid min-w-0 gap-1.5">
-          <div aria-live="polite" className="flex items-center gap-2 text-base font-medium">
-            {capturing && <StatusDot tone="record" />}
-            <span className="truncate">{label}</span>
+        <div className="grid min-w-0 gap-3">
+          <div aria-live="polite" className="flex items-baseline gap-3">
+            <span className="truncate text-xl font-semibold">{label}</span>
             {capturing && <span className="font-mono text-sm text-muted tabular-nums">{formatDuration(elapsed)}</span>}
+            <span className="flex-1" />
+            {(capturing || starting) && (
+              <Button variant="ghost" size="sm" onClick={cancel}>
+                <X /> Discard
+              </Button>
+            )}
           </div>
-          <LiveMeter active={capturing} />
-          <p className="text-sm text-muted">
+          <LiveWave active={capturing} busy={finishing} />
+          <p className="m-0 text-sm text-muted">
             {capturing ? (
               <>
                 {settings.live.pauseReadAloud && 'Read Aloud is paused while this runs. '}
@@ -194,50 +219,107 @@ export function LivePage() {
                 {settings.audio.speechCleanup && ' Background noise is cleaned up.'}
               </>
             ) : keys ? (
-              <span className="inline-flex flex-wrap items-center gap-2">Click to start, or press <Kbd keys={keys} /> from any app.</span>
+              <span className="inline-flex flex-wrap items-center gap-2">
+                Click to start, or press <Kbd keys={keys} /> from any app.
+              </span>
             ) : (
               'Click to start. Stop when you are done and the transcript is saved to History.'
             )}
           </p>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2 self-start">
-          <Badge>{stt.name}</Badge>
-          {(capturing || starting) && (
-            <Button variant="ghost" size="sm" onClick={cancel}>
-              <X /> Discard
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+            <Segmented<LiveSource>
+              label="Audio source"
+              value={source}
+              disabled={active}
+              onValueChange={(next) => update.mutate({ live: { source: next } })}
+              options={SOURCES}
+            />
+            <span className="flex-1" />
+            <Badge>{stt.name}</Badge>
+          </div>
         </div>
       </section>
 
-      <section className="grid gap-3">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="text-sm font-semibold tracking-wide text-faint uppercase">{active ? 'Transcript' : 'Last transcript'}</h2>
-          <div className="flex items-center gap-2">
-            {!active && live.savedId && <Badge>Saved to History · {formatDuration(live.durationMs)}</Badge>}
-            {hasText && (
-              <IconButton label="Copy transcript" size="icon-sm" onClick={() => void api.text.copy(live.text)}>
-                <Copy />
-              </IconButton>
-            )}
+      {showTranscript && (
+        <section className="grid gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="m-0 text-sm font-semibold tracking-wide text-faint uppercase">{active ? 'Transcript' : 'Last transcript'}</h2>
+            <div className="flex items-center gap-1.5">
+              {!active && live.savedId && <Badge>Saved to History · {formatDuration(live.durationMs)}</Badge>}
+              {hasText && !active && <ReadAloudButton id={live.savedId ?? 'live-last'} title="Live transcript" text={live.text} />}
+              {hasText && (
+                <IconButton label="Copy transcript" size="icon-sm" onClick={() => void api.text.copy(live.text)}>
+                  <Copy />
+                </IconButton>
+              )}
+            </div>
           </div>
-        </div>
-        {!active && live.phase !== 'error' && live.message && <Notice tone="neutral">{live.message}</Notice>}
-        <div data-selectable className={cn('min-h-16 text-base leading-relaxed break-words whitespace-pre-wrap', !hasText && 'text-faint')}>
-          {hasText ? live.text : capturing && !live.preview ? 'Listening. Text appears as it is heard.' : !active ? 'Your transcript appears here while you record.' : null}
-          {active && live.preview && (
-            <span className="text-faint">
-              {hasText && '\n\n'}
-              {live.preview}
-            </span>
+          {!active && live.phase !== 'error' && live.message && <Notice tone="neutral">{live.message}</Notice>}
+          {(active || hasText) && (
+            <div
+              ref={follow.box}
+              onScroll={follow.onScroll}
+              data-selectable
+              className={cn(
+                'app-scroll-area max-h-[28rem] min-h-32 overflow-y-auto rounded-[16px] border border-line bg-surface px-[22px] py-5 text-[17px] leading-[1.75] break-words whitespace-pre-wrap',
+                !hasText && 'text-faint',
+              )}
+            >
+              {hasText ? live.text : capturing && !live.preview ? 'Listening. Text appears as it is heard.' : null}
+              {active && live.preview && (
+                <span className="text-faint">
+                  {hasText && '\n\n'}
+                  {live.preview}
+                </span>
+              )}
+            </div>
           )}
-        </div>
-        {active && pendingSeconds > 0 && (
-          <p className="text-sm text-faint">
-            Transcribing the last {pendingSeconds === 1 ? 'second' : `${pendingSeconds} seconds`}…
-          </p>
-        )}
-      </section>
+          {active && pendingSeconds > 0 && (
+            <p className="m-0 text-sm text-faint">
+              Transcribing the last {pendingSeconds === 1 ? 'second' : `${pendingSeconds} seconds`}…
+            </p>
+          )}
+        </section>
+      )}
+
+      {settings.live.saveHistory && (
+        <>
+          <section aria-label="The last seven days" className="grid grid-cols-[1.3fr_1fr_1fr] gap-3">
+            <Stat label="Words this week" value={week.words.toLocaleString()}>
+              <WeekBars days={week.days} />
+            </Stat>
+            <Stat label="Sessions" value={week.takes.toLocaleString()} />
+            <Stat label="Time transcribed" value={week.ms ? formatSpan(week.ms) : '–'} />
+          </section>
+
+          <section className="grid gap-1">
+            {recent.length ? (
+              groupByDay(recent).map((group, index) => (
+                <div key={group.day} className="grid gap-1">
+                  <div className="flex min-h-8 items-center justify-between">
+                    <h2 className="m-0 text-sm font-semibold tracking-wide text-faint uppercase">{group.day}</h2>
+                    {index === 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => setSessions(true)}>
+                        All sessions
+                      </Button>
+                    )}
+                  </div>
+                  <ul className="m-0 grid list-none gap-0.5 p-0">
+                    {group.items.map((item) => (
+                      <RecentItem key={item.id} item={item} clamp />
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <>
+                <h2 className="m-0 text-sm font-semibold tracking-wide text-faint uppercase">Recent sessions</h2>
+                <p className="m-0 px-3.5 py-3 text-base text-faint">Your transcripts appear here after you stop a session.</p>
+              </>
+            )}
+          </section>
+        </>
+      )}
 
       <ConsentDialog open={asking || consent !== null} onCancel={onCancelConsent} onConfirm={onConfirm} />
       <SavedSessionsDrawer open={sessions} onOpenChange={setSessions} />
