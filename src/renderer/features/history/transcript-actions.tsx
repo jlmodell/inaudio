@@ -1,11 +1,12 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { ClipboardPaste, Copy, Download, PanelRightOpen, PencilLine, Pin, PinOff, Trash2 } from 'lucide-react';
+import { ClipboardPaste, Copy, Download, PanelRightOpen, PencilLine, Pin, PinOff, Trash2, Volume2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { MAX_TITLE_CHARS, transcriptTitle, type ExportFormat, type Transcript } from '@shared/domain/history';
 import { ConfirmDialog } from '@renderer/components/ui/alert-dialog';
 import { Button } from '@renderer/components/ui/button';
 import { ActionMenu, MenuItem, MenuSeparator, MenuSub } from '@renderer/components/ui/menu';
 import { toast } from '@renderer/components/ui/toast';
+import { useReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
 import { api, errorMessage } from '@renderer/lib/api';
 
 export const EXPORT_OPTIONS: { format: ExportFormat; label: string }[] = [
@@ -95,6 +96,8 @@ export function useTranscriptActions(options: { onDeleted?(id: string): void } =
         .then(() => toast('Copied to the clipboard'))
         .catch(fail),
     insert: (item: Transcript) => void api.text.insert(item.text).catch(fail),
+    /** Reads it in the Read Aloud voice; the Now reading bar keeps the controls in reach. */
+    readAloud: (item: Transcript) => void useReadAloud.getState().readText(item.text, { id: item.id, title: transcriptTitle(item) }),
     exportAs: (item: Transcript, format: ExportFormat) =>
       void api.history
         .export({ ids: [item.id], format })
@@ -136,7 +139,7 @@ export function useTranscriptActions(options: { onDeleted?(id: string): void } =
 
 export type TranscriptActions = ReturnType<typeof useTranscriptActions>['actions'];
 
-/** The "⋯" menu on a transcript: seven actions, export by format. */
+/** The "⋯" menu on a transcript: eight actions, export by format. */
 export function TranscriptMenu({
   item,
   actions,
@@ -158,6 +161,9 @@ export function TranscriptMenu({
       )}
       <MenuItem icon={<Copy />} onSelect={() => actions.copy(item)}>
         Copy text
+      </MenuItem>
+      <MenuItem icon={<Volume2 />} onSelect={() => actions.readAloud(item)}>
+        Read aloud
       </MenuItem>
       <MenuItem icon={<ClipboardPaste />} onSelect={() => actions.insert(item)}>
         Type into focused app

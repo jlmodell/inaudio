@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { highlight, highlights, parseReleaseMarkdown } from '../src/shared/update/release-markdown.ts';
+import { compareVersions, highlight, highlights, parseReleaseMarkdown, whatsNewSince } from '../src/shared/update/release-markdown.ts';
 
 // The real body of shikki841/inaudio v1.9.1.
 const GENERATED = `<!-- Release notes generated using configuration in .github/release.yml at v1.9.1 -->
@@ -40,4 +40,22 @@ test('highlights skip chores and read like sentences', () => {
   };
   assert.deepEqual(highlights(note), ['Floating window', 'Faster start', 'History drawer']);
   assert.deepEqual(highlights(undefined), []);
+});
+
+test('what is new since the last seen version, filled from earlier releases when only chores', () => {
+  const release = (version, body) => ({ version, name: `v${version}`, publishedAt: '', url: '', blocks: parseReleaseMarkdown(body) });
+  const releases = [
+    release('1.10.0', '* feat: not installed yet'),
+    release('1.9.1', '* chore(release): prepare v1.9.1 by @a in #56'),
+    release('1.9.0', '* fix(read-aloud): honor pauses by @b in #55'),
+    release('1.8.0', '* feat(read-aloud): speak selected text by @a in #53\n* feat: second'),
+  ];
+  assert.equal(compareVersions('1.10.0', '1.9.2') > 0, true);
+  assert.deepEqual(whatsNewSince(releases, '1.9.1', '1.8.0'), [
+    { text: 'Honor pauses', version: '1.9.0' },
+    { text: 'Speak selected text', version: '1.8.0' },
+    { text: 'Second', version: '1.8.0' },
+  ]);
+  assert.deepEqual(whatsNewSince(releases, '1.9.1', '1.9.0', 1), [{ text: 'Honor pauses', version: '1.9.0' }]);
+  assert.deepEqual(whatsNewSince([], '1.9.1', ''), []);
 });

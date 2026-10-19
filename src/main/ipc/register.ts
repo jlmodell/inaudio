@@ -73,9 +73,7 @@ export function registerIpc(services: Services): void {
   // What's new, live from GitHub. Never fetched behind the user's back when they turned
   // automatic updates off; a click on "Load release notes" is the explicit ask.
   const releaseNotes = new ReleaseNotesService();
-  handleOn('main', IPC.updateReleaseNotes, schemas.releaseNotes, ({ force }) =>
-    force || settings.get().updates.checkAutomatically ? releaseNotes.get(force) : { ...releaseNotes.cached(), paused: true },
-  );
+  handleOn('main', IPC.updateReleaseNotes, schemas.releaseNotes, ({ force }) => releaseNotes.get(force));
   handle(IPC.updateInstall, none, () =>
     services.updater.install(async () => {
       await services.dispose();

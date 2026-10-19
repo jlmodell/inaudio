@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, type ComponentType } from 'react';
+import type { UpdateStatus } from '@shared/domain/update';
 import { AppShell } from '@renderer/components/shell/app-shell';
 import { api, errorMessage } from '@renderer/lib/api';
 import { keys, useSettings } from '@renderer/lib/queries';
@@ -65,7 +66,14 @@ function useMainEvents() {
       api.events.onModelProgress(() => void client.invalidateQueries({ queryKey: keys.models })),
       api.events.onHistoryChanged(() => void client.invalidateQueries({ queryKey: keys.historyAll })),
       // Download progress is pushed as it happens, so the bar and the title bar move smoothly.
-      api.events.onUpdateState((status) => client.setQueryData(['update'], status)),
+      api.events.onUpdateState((status) => {
+        const before = client.getQueryData<UpdateStatus>(['update']);
+        client.setQueryData(['update'], status);
+        // A newly found release brings its own notes: fetch them now, not on the next tick.
+        if (status.availableVersion && status.availableVersion !== before?.availableVersion) {
+          void client.invalidateQueries({ queryKey: ['release-notes'] });
+        }
+      }),
       connectReadAloud(),
       connectLive(),
     ];

@@ -76,3 +76,37 @@ export function highlights(note: ReleaseNote | undefined, count = 3): string[] {
     .filter(Boolean)
     .slice(0, count);
 }
+
+/** Orders "1.10.0" after "1.9.2"; anything after the numbers is ignored. */
+export function compareVersions(a: string, b: string): number {
+  const parts = (version: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(version) ?? []).slice(1).map(Number);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i++) {
+    const diff = (x[i] ?? 0) - (y[i] ?? 0);
+    if (diff) return diff;
+  }
+  return 0;
+}
+
+export interface WhatsNewItem {
+  text: string;
+  version: string;
+}
+
+/**
+ * What changed since the version someone last saw, newest first, from the releases themselves.
+ * Releases newer than the installed one are left out. When those releases hold only chores,
+ * the notable items of earlier releases fill in, so a chore-only release never shows nothing.
+ */
+export function whatsNewSince(releases: ReleaseNote[], current: string, seen: string, count = 3): WhatsNewItem[] {
+  const installed = releases
+    .filter((release) => compareVersions(release.version, current) <= 0)
+    .sort((a, b) => compareVersions(b.version, a.version));
+  const pick = (list: ReleaseNote[]) =>
+    list.flatMap((release) => highlights(release, count).map((text) => ({ text, version: release.version })));
+  const since = seen ? installed.filter((release) => compareVersions(release.version, seen) > 0) : installed.slice(0, 1);
+  const items = pick(since);
+  if (items.length >= count) return items.slice(0, count);
+  const earlier = installed.filter((release) => !since.includes(release));
+  return [...items, ...pick(earlier)].slice(0, count);
+}

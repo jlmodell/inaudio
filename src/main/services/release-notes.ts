@@ -7,8 +7,11 @@ import type { ReleaseNotesResult } from '@shared/domain/update';
 const REPOSITORY = 'shikki841/inaudio';
 const RELEASES_URL = `https://api.github.com/repos/${REPOSITORY}/releases?per_page=10`;
 const RELEASE_PAGE = `https://github.com/${REPOSITORY}/releases/`;
-/** Notes are fetched again at most this often, however often a page asks. */
-const FRESH_MS = 5 * 60_000;
+/**
+ * Notes are asked for again at most this often. Each ask is conditional (If-None-Match), and
+ * GitHub does not count a 304 against the 60-an-hour limit for unauthenticated requests.
+ */
+const FRESH_MS = 30_000;
 const TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
 
@@ -42,7 +45,7 @@ function releaseSession(): Session {
  * to plain text before anything leaves this process.
  */
 export class ReleaseNotesService {
-  private cache: { releases: ReleaseNote[]; fetchedAt: number } | null = null;
+  private cache: { releases: ReleaseNote[]; fetchedAt: number; etag: string } | null = null;
   private pending: Promise<ReleaseNotesResult> | null = null;
 
   cached(): ReleaseNotesResult {
@@ -64,10 +67,15 @@ export class ReleaseNotesService {
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': `Inaudio/${app.getVersion()}`,
+          ...(this.cache?.etag ? { 'If-None-Match': this.cache.etag } : {}),
         },
         signal: AbortSignal.timeout(TIMEOUT_MS),
         redirect: 'error',
       });
+      if (response.status === 304 && this.cache) {
+        this.cache = { ...this.cache, fetchedAt: Date.now() };
+        return this.cached();
+      }
       if (!response.ok) throw new Error(response.status === 403 ? 'GitHub is limiting requests. Try again later.' : `GitHub answered ${response.status}.`);
       const text = await response.text();
       if (text.length > MAX_RESPONSE_BYTES) throw new Error('The release list was too large.');
@@ -81,7 +89,8 @@ export class ReleaseNotesService {
           url: release.html_url,
           blocks: parseReleaseMarkdown(release.body ?? ''),
         }));
-      this.cache = { releases, fetchedAt: Date.now() };
+      const etag = response.headers.get('etag') ?? '';
+      this.cache = { releases, fetchedAt: Date.now(), etag: etag.length <= 200 ? etag : '' };
       return this.cached();
     } catch (error) {
       const message = error instanceof Error && error.name !== 'TimeoutError' && !/fetch failed|ERR_/i.test(error.message)

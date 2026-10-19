@@ -1,10 +1,26 @@
 import * as NavigationMenu from '@radix-ui/react-navigation-menu';
-import { AudioLines, Boxes, Captions, History, Mic, PanelLeftClose, PanelLeftOpen, Settings2, Sparkles, Volume2, WandSparkles } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Wordmark } from '@renderer/components/brand/logo';
+import {
+  AudioLinesMotion,
+  BoxesMotion,
+  CaptionsMotion,
+  HistoryMotion,
+  MicMotion,
+  PanelLeftCloseMotion,
+  PanelLeftOpenMotion,
+  Settings2Motion,
+  SparklesMotion,
+  Volume2Motion,
+  WandSparklesMotion,
+  type MotionIcon,
+  type MotionIconHandle,
+} from '@renderer/components/icons/motion-icons';
 import { IconButton } from '@renderer/components/ui/icon-button';
 import { Tooltip } from '@renderer/components/ui/tooltip';
+import { Waveform } from '@renderer/components/ui/waveform';
 import { useLive } from '@renderer/features/live/live-store';
+import { useReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
 import { cn } from '@renderer/lib/cn';
 import { formatAccelerator } from '@renderer/lib/format';
 import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
@@ -12,28 +28,61 @@ import { useDictation } from '@renderer/stores/dictation-store';
 import { useUi, type Route } from '@renderer/stores/ui-store';
 import { EngineStatus } from './engine-status';
 
-type NavItem = { route: Route; label: string; icon: ComponentType<{ className?: string }> };
+type NavItem = { route: Route; label: string; icon: MotionIcon };
 
 /** The app's pages in groups, the same way Settings lists its categories. */
 const GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Speak',
     items: [
-      { route: 'dictation', label: 'Dictation', icon: Mic },
-      { route: 'live', label: 'Live transcript', icon: Captions },
-      { route: 'read-aloud', label: 'Read Aloud', icon: Volume2 },
+      { route: 'dictation', label: 'Dictation', icon: MicMotion },
+      { route: 'live', label: 'Live transcript', icon: CaptionsMotion },
+      { route: 'read-aloud', label: 'Read Aloud', icon: Volume2Motion },
     ],
   },
-  { label: 'Library', items: [{ route: 'history', label: 'History', icon: History }] },
+  { label: 'Library', items: [{ route: 'history', label: 'History', icon: HistoryMotion }] },
   {
     label: 'Engine',
     items: [
-      { route: 'models', label: 'Models', icon: Boxes },
-      { route: 'audio', label: 'Audio', icon: AudioLines },
-      { route: 'companion', label: 'Companion', icon: Sparkles },
+      { route: 'models', label: 'Models', icon: BoxesMotion },
+      { route: 'audio', label: 'Audio', icon: AudioLinesMotion },
+      { route: 'companion', label: 'Companion', icon: SparklesMotion },
     ],
   },
 ];
+
+/** What is happening on a page right now, drawn as a small waveform. */
+type Activity = 'listening' | 'capturing' | 'reading';
+const ACTIVITY_LABEL: Record<Activity, string> = {
+  listening: 'Listening',
+  capturing: 'Recording system audio',
+  reading: 'Reading aloud',
+};
+
+/** The dictation and live markers follow their input level; reading keeps an even rhythm. */
+function ActivityWave({ activity, compact }: { activity: Activity; compact: boolean }) {
+  const dictationLevel = useDictation((s) => (activity === 'listening' ? s.level : 0));
+  const liveLevel = useLive((s) => (activity === 'capturing' ? s.level : 0));
+  const level = activity === 'listening' ? dictationLevel : activity === 'capturing' ? liveLevel : undefined;
+  return (
+    <Waveform
+      level={level}
+      bars={compact ? 3 : 4}
+      label={ACTIVITY_LABEL[activity]}
+      className={cn('text-accent', compact ? 'absolute top-1 right-1.5 h-2.5 gap-px' : 'ml-auto')}
+      barClassName={compact ? 'w-[2px]' : 'w-[2.5px]'}
+    />
+  );
+}
+
+/** Plays a motion icon once when its page opens, not when the app first draws. */
+function usePlayOnActive(icon: RefObject<MotionIconHandle | null>, active: boolean | undefined) {
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current && active) icon.current?.start();
+    mounted.current = true;
+  }, [active, icon]);
+}
 
 function NavButton({
   label,
@@ -42,22 +91,26 @@ function NavButton({
   collapsed,
   onClick,
   trailing,
-  marker,
+  activity,
 }: {
   label: string;
-  icon: ComponentType<{ className?: string }>;
+  icon: MotionIcon;
   active?: boolean;
   collapsed: boolean;
   onClick(): void;
   /** Quiet text on the right, such as a shortcut. Hidden when collapsed. */
   trailing?: ReactNode;
-  /** A dot that says something is happening there. */
-  marker?: { label: string; className: string } | null;
+  /** Something running on that page, shown as a waveform. */
+  activity?: Activity | null;
 }) {
+  const icon = useRef<MotionIconHandle>(null);
+  usePlayOnActive(icon, active);
   const button = (
     <button
       type="button"
       onClick={onClick}
+      onMouseEnter={() => icon.current?.start()}
+      onFocus={(event) => event.currentTarget.matches(':focus-visible') && icon.current?.start()}
       aria-current={active ? 'page' : undefined}
       aria-label={collapsed ? label : undefined}
       className={cn(
@@ -66,15 +119,10 @@ function NavButton({
         collapsed && 'justify-center px-0',
       )}
     >
-      <Icon className={cn('size-[17px] shrink-0', active && 'text-accent')} />
+      <Icon ref={icon} className={cn('size-[17px] shrink-0', active && 'text-accent')} />
       {!collapsed && <span className="truncate">{label}</span>}
-      {!collapsed && trailing && !marker && <span className="ml-auto truncate pl-2 text-[11px] text-faint">{trailing}</span>}
-      {marker && (
-        <span
-          aria-label={marker.label}
-          className={cn('size-2 shrink-0 rounded-full', collapsed ? 'absolute top-1.5 right-2' : 'ml-auto', marker.className)}
-        />
-      )}
+      {!collapsed && trailing && !activity && <span className="ml-auto truncate pl-2 text-[11px] text-faint">{trailing}</span>}
+      {activity && <ActivityWave activity={activity} compact={collapsed} />}
     </button>
   );
   return collapsed ? (
@@ -98,17 +146,22 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
   const update = useUpdateSettings();
   const phase = useDictation((s) => s.phase);
   const liveCapturing = useLive((s) => s.live.phase === 'capturing');
+  const reading = useReadAloud((s) => s.state.status === 'playing' || s.state.status === 'preparing');
+  const whatsNewIcon = useRef<MotionIconHandle>(null);
+  const toggleIcon = useRef<MotionIconHandle>(null);
   const collapsed = settings?.appearance.sidebarCollapsed ?? false;
   const unseen = !!status?.appVersion && settings?.announcements.seenVersion !== status.appVersion;
   const shortcut = settings && status ? formatAccelerator(settings.dictation.shortcut, status.platform).join(' ') : '';
 
   const toggle = () => update.mutate({ appearance: { sidebarCollapsed: !collapsed } });
-  const marker = (target: Route) =>
+  const activity = (target: Route): Activity | null =>
     target === 'dictation' && phase === 'listening'
-      ? { label: 'Listening', className: 'animate-pulse bg-record' }
+      ? 'listening'
       : target === 'live' && liveCapturing
-        ? { label: 'Recording system audio', className: 'animate-pulse bg-record' }
-        : null;
+        ? 'capturing'
+        : target === 'read-aloud' && reading
+          ? 'reading'
+          : null;
 
   return (
     <aside
@@ -140,7 +193,7 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
                         collapsed={collapsed}
                         onClick={() => navigate(item.route)}
                         trailing={item.route === 'dictation' ? shortcut : undefined}
-                        marker={marker(item.route)}
+                        activity={activity(item.route)}
                       />
                     </NavigationMenu.Link>
                   </NavigationMenu.Item>
@@ -153,24 +206,22 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
 
       <div className="grid shrink-0 gap-1 px-3 pt-2">
         {collapsed ? (
-          <NavButton
-            label="What’s new"
-            icon={WandSparkles}
-            collapsed
-            onClick={() => openWhatsNew(true)}
-            marker={unseen ? { label: 'Not seen yet', className: 'bg-accent' } : null}
-          />
+          <span className="relative">
+            <NavButton label="What’s new" icon={WandSparklesMotion} collapsed onClick={() => openWhatsNew(true)} />
+            {unseen && <span aria-label="Not seen yet" className="pointer-events-none absolute top-1.5 right-2 size-2 rounded-full bg-accent" />}
+          </span>
         ) : (
           <button
             type="button"
             onClick={() => openWhatsNew(true)}
+            onMouseEnter={() => whatsNewIcon.current?.start()}
             className={cn(
               'flex items-center gap-2.5 rounded-[10px] p-2 text-left outline-none transition-colors focus-visible:outline-2 focus-visible:outline-accent',
               unseen ? 'border border-line bg-surface hover:border-line-strong' : 'hover:bg-surface/60',
             )}
           >
             <span className={cn('grid size-7 shrink-0 place-items-center rounded-[8px]', unseen ? 'bg-accent-soft text-accent' : 'text-muted')}>
-              <WandSparkles aria-hidden className="size-4" />
+              <WandSparklesMotion ref={whatsNewIcon} className="size-4" />
             </span>
             <span className="grid min-w-0 gap-px">
               <span className={cn('truncate text-[13px]', unseen ? 'font-semibold text-ink' : 'text-muted')}>
@@ -184,10 +235,15 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
         <EngineStatus collapsed={collapsed} />
         <div className={cn('flex items-center gap-1 border-t border-line pt-1.5', collapsed && 'flex-col')}>
           <div className={cn(collapsed ? 'w-full' : 'flex-1')}>
-            <NavButton label="Settings" icon={Settings2} active={route === 'settings'} collapsed={collapsed} onClick={() => navigate('settings')} />
+            <NavButton label="Settings" icon={Settings2Motion} active={route === 'settings'} collapsed={collapsed} onClick={() => navigate('settings')} />
           </div>
-          <IconButton label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} side="right" onClick={toggle}>
-            {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          <IconButton
+            label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            side="right"
+            onClick={toggle}
+            onMouseEnter={() => toggleIcon.current?.start()}
+          >
+            {collapsed ? <PanelLeftOpenMotion ref={toggleIcon} /> : <PanelLeftCloseMotion ref={toggleIcon} />}
           </IconButton>
         </div>
       </div>

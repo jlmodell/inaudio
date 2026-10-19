@@ -67,8 +67,12 @@ export function useReleaseNotes(enabled = true) {
     queryKey: ['release-notes'],
     queryFn: () => api.updates.releaseNotes(false),
     enabled,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
+    // Live: asked for on every open and focus, and every few minutes while shown. Main answers
+    // from its 30-second cache or with a conditional request, so this stays cheap.
+    staleTime: 10_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: enabled ? 5 * 60_000 : false,
   });
   const load = useMutation({
     mutationFn: () => api.updates.releaseNotes(true),

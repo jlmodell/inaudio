@@ -1,20 +1,24 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, Pin, Search, Trash2 } from 'lucide-react';
-import { useDeferredValue, useState, type ReactNode } from 'react';
-import { transcriptTitle, type HistoryKind, type Transcript } from '@shared/domain/history';
+import { Captions, Copy, Download, Mic, Pin, Search, Trash2 } from 'lucide-react';
+import { useDeferredValue, useState } from 'react';
+import { transcriptTitle, wordCount, type HistoryKind, type Transcript } from '@shared/domain/history';
 import { ConfirmDialog } from '@renderer/components/ui/alert-dialog';
 import { Button } from '@renderer/components/ui/button';
 import { Drawer } from '@renderer/components/ui/drawer';
 import { EmptyState } from '@renderer/components/ui/empty-state';
+import { IconButton } from '@renderer/components/ui/icon-button';
 import { Badge, PageHeader } from '@renderer/components/ui/layout';
 import { ActionMenu, MenuItem, MenuSeparator, MenuSub } from '@renderer/components/ui/menu';
 import { Segmented } from '@renderer/components/ui/segmented';
 import { toast } from '@renderer/components/ui/toast';
+import { ReadAloudButton, useReadingState } from '@renderer/features/read-aloud/read-aloud-controls';
 import { api, errorMessage } from '@renderer/lib/api';
+import { cn } from '@renderer/lib/cn';
+import { formatDuration, formatTime, groupByDay } from '@renderer/lib/format';
 import { keys, useHistory, useSettings } from '@renderer/lib/queries';
 import { useUi } from '@renderer/stores/ui-store';
-import { EXPORT_OPTIONS, SOURCE_LABEL, TranscriptMenu, useTranscriptActions } from './transcript-actions';
-import { TranscriptView, transcriptDetails } from './transcript-view';
+import { EXPORT_OPTIONS, SOURCE_LABEL, TranscriptMenu, useTranscriptActions, type TranscriptActions } from './transcript-actions';
+import { TranscriptView } from './transcript-view';
 
 const PAGE = 50;
 
@@ -33,26 +37,60 @@ const EMPTY: Record<View, { title: string; description: string }> = {
   pinned: { title: 'Nothing pinned', description: 'Pin a transcript from its ⋯ menu to keep it here.' },
 };
 
-/** One saved transcript in the list. The whole row opens it; the ⋯ menu acts on it. */
-function Row({ item, onOpen, menu }: { item: Transcript; onOpen(): void; menu: ReactNode }) {
+/**
+ * One saved transcript in the list. The whole row opens it; Read aloud and Copy wait on the
+ * right, shown on hover or focus and always while it is being read; the ⋯ menu has the rest.
+ */
+function Row({ item, onOpen, actions }: { item: Transcript; onOpen(): void; actions: TranscriptActions }) {
+  const reading = useReadingState(item.id);
+  const live = item.source !== 'microphone';
+  const SourceIcon = live ? Captions : Mic;
+  const words = wordCount(item.text);
   return (
-    <li className="group flex gap-3 py-4">
+    <li
+      className={cn(
+        'group flex items-start gap-3.5 rounded-xl px-2.5 py-3.5 transition-colors hover:bg-sunken focus-within:bg-sunken',
+        reading !== 'idle' && 'bg-accent-soft hover:bg-accent-soft focus-within:bg-accent-soft',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'mt-0.5 grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-sunken text-muted transition-colors group-hover:bg-surface group-focus-within:bg-surface',
+          reading !== 'idle' && 'bg-surface text-accent',
+        )}
+      >
+        <SourceIcon className="size-[17px]" />
+      </span>
       <button
         type="button"
         onClick={onOpen}
-        className="grid min-w-0 flex-1 gap-1.5 rounded-[6px] text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+        className="grid min-w-0 flex-1 gap-1 rounded-[6px] text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
       >
         <span className="flex min-w-0 items-center gap-2">
           {item.pinned && <Pin aria-label="Pinned" className="size-3.5 shrink-0 fill-current text-accent" />}
           <span className="truncate text-[15px] font-semibold">{transcriptTitle(item)}</span>
-          {item.source !== 'microphone' && <Badge tone="accent">{SOURCE_LABEL[item.source]}</Badge>}
+          {live && <Badge tone="accent">{SOURCE_LABEL[item.source]}</Badge>}
         </span>
-        <span className="truncate text-xs text-faint">{transcriptDetails(item)}</span>
+        <span className="truncate text-xs text-faint tabular-nums">
+          {formatTime(item.createdAt)} · {formatDuration(item.durationMs)} · {words.toLocaleString()} {words === 1 ? 'word' : 'words'}
+        </span>
         {(item.title || item.text.length > 60) && (
           <span className="line-clamp-2 text-[15px] leading-relaxed text-ink">{item.text}</span>
         )}
       </button>
-      {menu}
+      <span
+        className={cn(
+          'flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100',
+          reading !== 'idle' && 'opacity-100',
+        )}
+      >
+        <ReadAloudButton id={item.id} title={transcriptTitle(item)} text={item.text} />
+        <IconButton label="Copy text" size="icon-sm" onClick={() => actions.copy(item)}>
+          <Copy />
+        </IconButton>
+      </span>
+      <TranscriptMenu item={item} actions={actions} onOpen={onOpen} />
     </li>
   );
 }
@@ -130,16 +168,21 @@ export function HistoryPage() {
         />
       </div>
 
-      <ul className="mt-4 divide-y divide-line">
-        {data?.items.map((item) => (
-          <Row
-            key={item.id}
-            item={item}
-            onOpen={() => setOpen(item.id)}
-            menu={<TranscriptMenu item={item} actions={actions} onOpen={() => setOpen(item.id)} />}
-          />
+      <div className="mt-2">
+        {groupByDay(data?.items ?? []).map((group) => (
+          <section key={group.day} aria-label={group.day}>
+            <h2 className="sticky top-0 z-10 m-0 flex items-center gap-1.5 bg-surface/95 px-2.5 pt-5 pb-1.5 text-xs font-semibold tracking-[0.05em] text-faint uppercase backdrop-blur-sm">
+              {group.day}
+              <span className="font-medium tracking-normal normal-case">· {group.items.length}</span>
+            </h2>
+            <ul className="m-0 grid list-none gap-0.5 p-0">
+              {group.items.map((item) => (
+                <Row key={item.id} item={item} onOpen={() => setOpen(item.id)} actions={actions} />
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
 
       {data && data.items.length === 0 && (
         <EmptyState

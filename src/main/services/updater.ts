@@ -32,6 +32,8 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.autoDownload = settings.downloadAutomatically;
     autoUpdater.allowPrerelease = false;
+    // Releases ship a full NSIS installer; a web-installer payload is never expected.
+    autoUpdater.disableWebInstaller = true;
     // The feed and the download cache both come from resources/app-update.yml, which
     // Forge copies in (forge.config.ts extraResource).
     autoUpdater.logger = {
@@ -93,7 +95,8 @@ export class UpdaterService extends EventEmitter<UpdateEvents> {
     if (this.status.state !== 'downloaded') throw new Error('No downloaded update is ready to install');
     this.beforeInstall();
     await prepare();
-    autoUpdater.quitAndInstall(false, true);
+    // Silent: the installer's pages are for first installs, not updates. Inaudio opens again after.
+    autoUpdater.quitAndInstall(true, true);
   }
 
   start(): void {

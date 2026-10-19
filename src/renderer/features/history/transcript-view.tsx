@@ -1,22 +1,13 @@
 import { Copy, Download, Pin } from 'lucide-react';
 import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
-import { wordCount, type Transcript } from '@shared/domain/history';
+import { transcriptTitle, wordCount, type Transcript } from '@shared/domain/history';
 import { Button } from '@renderer/components/ui/button';
 import { Badge } from '@renderer/components/ui/layout';
+import { ReadAloudButton } from '@renderer/features/read-aloud/read-aloud-controls';
 import { ActionMenu, MenuItem } from '@renderer/components/ui/menu';
 import { cn } from '@renderer/lib/cn';
 import { formatDuration, formatWhen } from '@renderer/lib/format';
 import { EXPORT_OPTIONS, SOURCE_LABEL, TranscriptMenu, type TranscriptActions } from './transcript-actions';
-
-export function transcriptDetails(item: Transcript): string {
-  const words = wordCount(item.text);
-  return [
-    formatWhen(item.createdAt),
-    formatDuration(item.durationMs),
-    `${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}`,
-    MODEL_CATALOG[item.modelId as ModelId]?.name ?? item.modelId,
-  ].join(' · ');
-}
 
 /** A saved transcript in full: what it is, what can be done with it, and its text. */
 export function TranscriptView({ item, actions }: { item: Transcript; actions: TranscriptActions }) {
@@ -35,6 +26,7 @@ export function TranscriptView({ item, actions }: { item: Transcript; actions: T
         {item.language && <Badge>{item.language.toUpperCase()}</Badge>}
       </div>
       <div className="flex items-center gap-1.5">
+        <ReadAloudButton variant="button" id={item.id} title={transcriptTitle(item)} text={item.text} />
         <Button size="sm" onClick={() => actions.copy(item)}>
           <Copy /> Copy
         </Button>

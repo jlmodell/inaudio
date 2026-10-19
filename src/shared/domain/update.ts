@@ -37,6 +37,4 @@ export interface ReleaseNotesResult {
   fetchedAt: number;
   /** Why the latest attempt failed; the last good list is still returned. */
   error?: string;
-  /** Not fetched because automatic updates are off and nobody asked. */
-  paused?: boolean;
 }
