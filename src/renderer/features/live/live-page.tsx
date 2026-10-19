@@ -42,11 +42,13 @@ function LiveWave({ active, busy }: { active: boolean; busy: boolean }) {
   return <LevelWave level={level} active={active} busy={busy} />;
 }
 
-/** "42 min" or "1 h 12 min": time transcribed, at a glance. */
-function formatSpan(ms: number): string {
+/** "27 seconds", "42 minutes" or "1 h 12 minutes": time transcribed, at a glance. */
+function formatSpan(ms: number): { value: string; unit: string } {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return { value: String(seconds), unit: seconds === 1 ? 'second' : 'seconds' };
   const minutes = Math.round(ms / 60_000);
-  if (minutes < 60) return `${minutes} min`;
-  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  if (minutes < 60) return { value: String(minutes), unit: minutes === 1 ? 'minute' : 'minutes' };
+  return { value: `${Math.floor(minutes / 60)} h ${minutes % 60}`, unit: 'minutes' };
 }
 
 /** Keeps the end of a growing transcript in view, unless the reader has scrolled up. */
@@ -129,6 +131,7 @@ export function LivePage() {
   const pendingSeconds = Math.ceil(live.pendingMs / 1000);
   const hasText = live.text.length > 0;
   const recent = (history?.items ?? []).slice(0, RECENT);
+  const span = week.ms ? formatSpan(week.ms) : undefined;
   const showTranscript = active || hasText || (live.phase !== 'error' && !!live.message);
 
   return (
@@ -289,7 +292,7 @@ export function LivePage() {
               <WeekBars days={week.days} />
             </Stat>
             <Stat label="Sessions" value={week.takes.toLocaleString()} />
-            <Stat label="Time transcribed" value={week.ms ? formatSpan(week.ms) : '–'} />
+            <Stat label="Time transcribed" value={span?.value ?? '–'} unit={span?.unit} />
           </section>
 
           <section className="grid gap-1">
