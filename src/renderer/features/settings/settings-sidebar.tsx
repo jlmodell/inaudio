@@ -59,7 +59,7 @@ export function SettingsSidebar({ macInset }: { macInset: boolean }) {
             placeholder="Search settings"
             aria-label="Search settings"
             maxLength={80}
-            className="h-9 w-full rounded-lg bg-surface pr-8 pl-8 text-[13px] text-ink shadow-[0_0_0_1px_var(--line)] outline-none placeholder:text-faint focus:shadow-[0_0_0_2px_var(--accent)] [&::-webkit-search-cancel-button]:hidden"
+            className="h-9 w-full rounded-[6px] bg-surface pr-8 pl-8 text-[13px] text-ink shadow-[0_0_0_1px_var(--line)] outline-none placeholder:text-faint focus:shadow-[0_0_0_2px_var(--accent)] [&::-webkit-search-cancel-button]:hidden"
           />
           {query && (
             <button

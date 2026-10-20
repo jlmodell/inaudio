@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeTheme, powerMonitor, systemPreferences } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeTheme, powerMonitor, systemPreferences } from 'electron';
 import path from 'node:path';
 import type { AppCommand } from '@shared/domain/system';
 import { DEFAULT_SETTINGS } from '@shared/domain/settings';
@@ -34,6 +34,40 @@ function bootstrap(): void {
   let ipcReady = false;
   let quitting = false;
   let installingUpdate = false;
+  let quitPromptOpen = false;
+  let shutdownStarted = false;
+
+  const requestQuit = async (): Promise<void> => {
+    if (quitting || quitPromptOpen) return;
+    const current = services?.settings.get();
+    const dictationPhase = services?.dictation.current().phase;
+    const capturing =
+      (dictationPhase !== undefined && dictationPhase !== 'idle' && dictationPhase !== 'error') ||
+      (services?.live.active() ?? false);
+    if (current?.system.confirmQuitDuringCapture && capturing) {
+      quitPromptOpen = true;
+      try {
+        const options = {
+          type: 'warning' as const,
+          buttons: ['Keep recording', 'Quit Inaudio'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Quit Inaudio?',
+          message: 'A recording is in progress.',
+          detail: 'Quitting stops the active dictation or live transcript.',
+        };
+        const parent = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null;
+        const result = parent
+          ? await dialog.showMessageBox(parent, options)
+          : await dialog.showMessageBox(options);
+        if (result.response !== 1) return;
+      } finally {
+        quitPromptOpen = false;
+      }
+    }
+    quitting = true;
+    app.quit();
+  };
 
   const send = (channel: string, payload?: unknown) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
@@ -141,8 +175,7 @@ function bootstrap(): void {
       hideCompanion: () => services?.companion.hide(),
       toggleCompanionClickThrough: () => services?.companion.toggleClickThrough(),
       quit: () => {
-        quitting = true;
-        app.quit();
+        void requestQuit().catch((error: unknown) => console.error('Could not quit Inaudio', error));
       },
     },
     DEFAULT_SETTINGS,
@@ -193,7 +226,7 @@ function bootstrap(): void {
       installingUpdate = true;
       quitting = true;
     });
-    registerIpc(s);
+    registerIpc(s, requestQuit);
     ipcReady = true;
     s.updater.on('change', (status) => send(EVENTS.updateState, status));
     openCompanion();
@@ -225,8 +258,13 @@ function bootstrap(): void {
     nativeTheme.on('updated', applyTheme);
 
     const applySystem = () => {
-      const { launchAtLogin } = s.settings.get().system;
-      if (process.platform !== 'linux') app.setLoginItemSettings({ openAtLogin: launchAtLogin });
+      const { launchAtLogin, launchMinimized } = s.settings.get().system;
+      if (process.platform !== 'linux') {
+        app.setLoginItemSettings({
+          openAtLogin: launchAtLogin,
+          ...(process.platform === 'win32' ? { args: launchMinimized ? ['--start-hidden'] : [] } : {}),
+        });
+      }
     };
     applySystem();
     shortcuts.apply(s.settings.get());
@@ -247,7 +285,10 @@ function bootstrap(): void {
       ) {
         shortcuts.apply(next);
       }
-      if (next.system.launchAtLogin !== previous.system.launchAtLogin) applySystem();
+      if (
+        next.system.launchAtLogin !== previous.system.launchAtLogin ||
+        next.system.launchMinimized !== previous.system.launchMinimized
+      ) applySystem();
       if (JSON.stringify(next.updates) !== JSON.stringify(previous.updates)) s.updater.applySettings(next.updates);
       // Model switches are unloaded by the services' own queue; status follows in its batch.
       if (JSON.stringify(next.overlay) !== JSON.stringify(previous.overlay)) s.overlay.sync();
@@ -279,7 +320,11 @@ function bootstrap(): void {
       await systemPreferences.askForMediaAccess('microphone');
     }
 
-    mainWindow = openWindow();
+    const startHidden =
+      s.settings.get().system.launchMinimized &&
+      ((process.platform === 'win32' && process.argv.includes('--start-hidden')) ||
+        (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin));
+    mainWindow = openWindow(!startHidden);
     // Only the dictation engine is started eagerly; synthesis starts on first use.
     void s.stt.start().catch((error: unknown) => console.error(error));
     setTimeout(() => s.readAloud.warm(), 3_000).unref();
@@ -308,11 +353,23 @@ function bootstrap(): void {
       return;
     }
     event.preventDefault();
-    const disposing = services.dispose();
-    void disposing.finally(() => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(shutdownTimer);
       companionWindow = null;
       tray.destroy();
       app.exit(0);
-    });
+    };
+    const shutdownTimer = setTimeout(() => {
+      console.error('Service shutdown timed out; exiting Inaudio');
+      finish();
+    }, 10_000);
+    void services.dispose()
+      .catch((error: unknown) => console.error('Service shutdown failed', error))
+      .finally(finish);
   });
 }

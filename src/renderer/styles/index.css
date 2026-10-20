@@ -162,6 +162,10 @@
   [data-selectable] {
     user-select: text;
   }
+  input,
+  textarea {
+    border-radius: var(--radius-sm);
+  }
   /* The overlay window is transparent: only the pill it draws is opaque. */
   body[data-surface='overlay'] {
     background: transparent;

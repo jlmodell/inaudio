@@ -266,7 +266,7 @@ export function ReadAloudPage() {
         <Notice tone="neutral">Only the first {MAX_READ_ALOUD_CHARS.toLocaleString()} characters are read.</Notice>
       )}
 
-      <section aria-label="Text" className="overflow-hidden rounded-[16px] border border-line bg-sunken focus-within:shadow-[0_0_0_2px_var(--accent)]">
+      <section aria-label="Text" className="overflow-hidden rounded-[6px] border border-line bg-sunken focus-within:shadow-[0_0_0_2px_var(--accent)]">
         <div className="flex h-11 items-center gap-3 border-b border-line px-[18px] text-xs text-faint">
           <span className="truncate">
             {editing

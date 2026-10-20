@@ -17,6 +17,7 @@ export const SETTINGS_CATEGORIES = [
   'performance',
   'updates',
   'about',
+  'privacy',
 ] as const;
 export type SettingsCategory = (typeof SETTINGS_CATEGORIES)[number];
 

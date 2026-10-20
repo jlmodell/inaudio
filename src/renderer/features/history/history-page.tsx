@@ -144,7 +144,7 @@ export function HistoryPage() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex h-10 min-w-60 flex-1 items-center gap-2 rounded-lg bg-sunken px-3">
+        <label className="flex h-10 min-w-60 flex-1 items-center gap-2 rounded-[6px] bg-sunken px-3">
           <Search aria-hidden className="size-4 text-faint" />
           <input
             type="search"
