@@ -55,7 +55,7 @@ export function ShortcutInput({
           }
         }}
         className={cn(
-          'flex h-9 min-w-44 items-center justify-center rounded-lg px-3 text-sm',
+          'flex h-9 min-w-44 items-center justify-center rounded-[6px] px-3 text-sm',
           recording
             ? 'bg-accent-soft text-accent shadow-[0_0_0_2px_var(--accent)]'
             : 'bg-sunken hover:bg-line',

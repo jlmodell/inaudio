@@ -199,7 +199,7 @@ export function WhatsNewBillboard() {
               type="checkbox"
               checked={mute}
               onChange={(event) => setMute(event.target.checked)}
-              className="size-4 rounded accent-[var(--accent)]"
+              className="size-4 rounded-[6px] accent-[var(--accent)]"
             />
             Don’t show after updates
           </label>

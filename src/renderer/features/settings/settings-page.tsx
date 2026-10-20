@@ -19,6 +19,7 @@ import { ShortcutInput } from './shortcut-input';
 import { TranscriptQualitySettings } from './transcript-quality-settings';
 import { TraySettings } from './tray-settings';
 import { UpdateSection } from './update-section';
+import { PrivacySettings } from './privacy-settings';
 
 const THREADS = [1, 2, 4, 6, 8, 12, 16];
 /** Idle delays offered before the engine unloads. The schema allows 1–60 minutes. */
@@ -496,11 +497,36 @@ export function SettingsPage() {
             />
           </Row>
         )}
+        {status.platform !== 'linux' && (
+          <Row
+            id="settings-launch-minimized"
+            label="Launch minimized"
+            description="When Inaudio opens at login, keep its main window hidden until you open it from the tray."
+          >
+            <Switch
+              aria-label="Launch minimized"
+              checked={settings.system.launchMinimized}
+              disabled={!settings.system.launchAtLogin}
+              onCheckedChange={(launchMinimized) => update.mutate({ system: { launchMinimized } })}
+            />
+          </Row>
+        )}
         <Row label="Keep running in the tray" description="Closing the window leaves shortcuts active.">
           <Switch
             aria-label="Keep running in the tray"
             checked={settings.system.closeToTray}
             onCheckedChange={(closeToTray) => update.mutate({ system: { closeToTray } })}
+          />
+        </Row>
+        <Row
+          id="settings-quit-confirmation"
+          label="Confirm before quitting during capture"
+          description="Ask before stopping an active dictation or live transcript from the tray."
+        >
+          <Switch
+            aria-label="Confirm before quitting during capture"
+            checked={settings.system.confirmQuitDuringCapture}
+            onCheckedChange={(confirmQuitDuringCapture) => update.mutate({ system: { confirmQuitDuringCapture } })}
           />
         </Row>
         <Row label="Setup" description="Walk through microphone, models and live transcript setup again.">
@@ -521,6 +547,8 @@ export function SettingsPage() {
           onAnnouncements={(patch) => update.mutate({ announcements: patch })}
         />
       )}
+
+      {show('privacy') && <PrivacySettings settings={settings} platform={status.platform} />}
 
       {show('about') && (
       <Section id="settings-about">

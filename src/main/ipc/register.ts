@@ -19,7 +19,7 @@ const none = z.undefined();
 
 const EXPORT_NAME: Record<ExportFormat, string> = { txt: 'Plain text', md: 'Markdown', json: 'JSON' };
 
-export function registerIpc(services: Services): void {
+export function registerIpc(services: Services, requestQuit: () => Promise<void>): void {
   const { settings, history, models, stt, tts: synthesis, inserter, paths, companion } = services;
 
   handle(IPC.systemStatus, none, () => services.status());
@@ -57,7 +57,7 @@ export function registerIpc(services: Services): void {
       return;
     }
     if (command === 'file.quit') {
-      app.quit();
+      void requestQuit().catch((error: unknown) => console.error('Could not quit Inaudio', error));
       return;
     }
     const win = services.window();

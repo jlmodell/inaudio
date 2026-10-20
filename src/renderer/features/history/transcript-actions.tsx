@@ -63,7 +63,7 @@ function RenameDialog({ item, onClose }: { item: Transcript | null; onClose(): v
               maxLength={MAX_TITLE_CHARS}
               placeholder={item ? transcriptTitle({ title: '', text: item.text }) : ''}
               onChange={(event) => setValue(event.target.value)}
-              className="h-10 rounded-lg bg-sunken px-3 text-sm text-ink outline-none placeholder:text-faint focus:shadow-[0_0_0_2px_var(--accent)]"
+              className="h-10 rounded-[6px] bg-sunken px-3 text-sm text-ink outline-none placeholder:text-faint focus:shadow-[0_0_0_2px_var(--accent)]"
             />
             <div className="flex justify-end gap-2">
               <DialogPrimitive.Close asChild>
