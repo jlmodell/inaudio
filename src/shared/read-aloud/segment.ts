@@ -13,6 +13,23 @@ export const FIRST_SEGMENT_CHARS = 120;
 /** Sentences shorter than this are joined to the next one, so fragments like "e.g." do not stand alone. */
 export const MIN_SEGMENT_CHARS = 60;
 
+/** In-browser Kokoro is slower than the server; keep pieces short so generate stays ahead of play. */
+export const BROWSER_MAX_SEGMENT_CHARS = 140;
+export const BROWSER_FIRST_SEGMENT_CHARS = 80;
+export const BROWSER_MIN_SEGMENT_CHARS = 40;
+
+export interface SegmentLimits {
+  max?: number;
+  first?: number;
+  min?: number;
+}
+
+export const BROWSER_SEGMENT_LIMITS: SegmentLimits = {
+  max: BROWSER_MAX_SEGMENT_CHARS,
+  first: BROWSER_FIRST_SEGMENT_CHARS,
+  min: BROWSER_MIN_SEGMENT_CHARS,
+};
+
 /**
  * Whitespace only: line endings become LF, a blank line separates paragraphs, and any other
  * run of whitespace becomes one space. The words themselves are never changed.
@@ -52,7 +69,8 @@ function splitLong(text: string, piece: TextSegment, max: number): TextSegment[]
  * Splits normalized text into paragraphs, then sentences, in order. A segment never crosses a
  * paragraph break or cuts a word, unless one word is longer than `max`.
  */
-export function segmentText(text: string, max = MAX_SEGMENT_CHARS): TextSegment[] {
+export function segmentText(text: string, maxOrLimits: number | SegmentLimits = MAX_SEGMENT_CHARS): TextSegment[] {
+  const limits = resolveLimits(maxOrLimits);
   const sentences = new Intl.Segmenter('en', { granularity: 'sentence' });
   const out: TextSegment[] = [];
   let offset = 0;
@@ -62,11 +80,11 @@ export function segmentText(text: string, max = MAX_SEGMENT_CHARS): TextSegment[
       const sentence = trimmed(text, offset + index, offset + index + segment.length);
       if (!sentence) continue;
       const first = out.length === 0;
-      const limit = first && current === null ? Math.min(max, FIRST_SEGMENT_CHARS) : max;
-      const joinLimit = first ? Math.min(max, FIRST_SEGMENT_CHARS) : max;
+      const limit = first && current === null ? Math.min(limits.max, limits.first) : limits.max;
+      const joinLimit = first ? Math.min(limits.max, limits.first) : limits.max;
       const parts: TextSegment[] = splitLong(text, sentence, limit);
       for (const part of parts) {
-        if (current && current.text.length < MIN_SEGMENT_CHARS && part.end - current.start <= joinLimit) {
+        if (current && current.text.length < limits.min && part.end - current.start <= joinLimit) {
           current = { text: text.slice(current.start, part.end), start: current.start, end: part.end };
           continue;
         }
@@ -78,4 +96,16 @@ export function segmentText(text: string, max = MAX_SEGMENT_CHARS): TextSegment[
     offset += paragraph.length + 2;
   }
   return out;
+}
+
+function resolveLimits(maxOrLimits: number | SegmentLimits): { max: number; first: number; min: number } {
+  if (typeof maxOrLimits === 'number') {
+    return { max: maxOrLimits, first: Math.min(maxOrLimits, FIRST_SEGMENT_CHARS), min: MIN_SEGMENT_CHARS };
+  }
+  const max = maxOrLimits.max ?? MAX_SEGMENT_CHARS;
+  return {
+    max,
+    first: maxOrLimits.first ?? Math.min(max, FIRST_SEGMENT_CHARS),
+    min: maxOrLimits.min ?? MIN_SEGMENT_CHARS,
+  };
 }

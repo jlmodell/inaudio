@@ -1,19 +1,31 @@
 import type { VoiceId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
-import { normalizeText, segmentText } from '@shared/read-aloud/segment';
+import { clampAhead, DEFAULT_READ_ALOUD_BUFFER, pullAhead } from '@shared/read-aloud/ahead';
+import { BROWSER_SEGMENT_LIMITS, normalizeText, segmentText } from '@shared/read-aloud/segment';
 import {
   browserVoiceName,
+  clampReadSpeed,
   effectiveReadAloudEngine,
   type ReadAloudEngine,
+  type SentenceTiming,
 } from '@shared/web/read-aloud-engine';
 import { SpeakQueue } from '../speak-queue';
 import { AudioQueue } from './audio-queue';
 import { canUseBrowserTts, hasWebSpeech } from './detect';
 import { readDeviceFallback, writeDeviceFallback } from './device-fallback';
+import { readAloudDiag, writeAloudDiag } from './diag';
 import { kokoroHost, resetKokoroHost } from './kokoro-host';
 import { SpeechApiPlayer } from './speech-api';
 
 export type ReadAloudProgress = { file: string; loaded: number; total: number };
+
+export type ReadAloudStart = {
+  text: string;
+  voiceId: VoiceId;
+  speed: number;
+  engine: ReadAloudEngine;
+  buffer?: number;
+};
 
 type PlayerHooks = {
   onPlaying(): void;
@@ -21,6 +33,7 @@ type PlayerHooks = {
   onError(error: Error): void;
   onProgress?(progress: ReadAloudProgress): void;
   onFallback?(engine: ReadAloudEngine, reason: string): void;
+  onWord?(word: string): void;
 };
 
 export class ReadAloudPlayer {
@@ -29,19 +42,18 @@ export class ReadAloudPlayer {
   private speech: SpeechApiPlayer | null = null;
   private stopped = false;
 
-  async start(
-    input: { text: string; voiceId: VoiceId; speed: number; engine: ReadAloudEngine },
-    hooks: PlayerHooks,
-  ): Promise<void> {
+  async start(input: ReadAloudStart, hooks: PlayerHooks): Promise<void> {
     this.stop();
     this.stopped = false;
     const text = input.text.trim().slice(0, MAX_READ_ALOUD_CHARS);
     if (!text) return;
+    const speed = clampReadSpeed(input.speed);
+    const buffer = clampAhead(input.buffer ?? DEFAULT_READ_ALOUD_BUFFER);
     const engine = effectiveReadAloudEngine(input.engine, readDeviceFallback());
     try {
-      if (engine === 'server') return this.startServer(input, hooks);
-      if (engine === 'speech') return this.startSpeech(text, input.speed, hooks);
-      await this.startBrowser(text, input.voiceId, input.speed, hooks);
+      if (engine === 'server') return this.startServer({ ...input, text, speed, buffer }, hooks);
+      if (engine === 'speech') return this.startSpeech(text, speed, hooks);
+      await this.startBrowser(text, input.voiceId, speed, buffer, hooks);
     } catch (error) {
       if (this.stopped) return;
       const reason = error instanceof Error ? error.message : String(error);
@@ -49,7 +61,7 @@ export class ReadAloudPlayer {
         writeDeviceFallback('speech');
         hooks.onFallback?.('speech', reason);
         if (this.stopped) return;
-        return this.startSpeech(text, input.speed, hooks);
+        return this.startSpeech(text, speed, hooks);
       }
       hooks.onError(error instanceof Error ? error : new Error('Could not read that aloud'));
     }
@@ -78,52 +90,91 @@ export class ReadAloudPlayer {
   }
 
   private async startServer(
-    input: { text: string; voiceId: VoiceId; speed: number },
+    input: { text: string; voiceId: VoiceId; speed: number; buffer: number },
     hooks: PlayerHooks,
   ): Promise<void> {
+    writeAloudDiag({ runtime: 'server', threads: 0, buffer: input.buffer, timings: [] });
     const queue = new SpeakQueue();
     this.server = queue;
-    await queue.start(input, hooks);
+    await queue.start(input, this.audioHooks(hooks), { buffer: input.buffer });
   }
 
   private async startSpeech(text: string, speed: number, hooks: PlayerHooks): Promise<void> {
+    writeAloudDiag({ runtime: 'speech', threads: 0, buffer: 1, timings: [] });
     const player = new SpeechApiPlayer();
     this.speech = player;
-    await player.start(text, speed, hooks);
+    await player.start(text, speed, {
+      onPlaying: hooks.onPlaying,
+      onEnded: hooks.onEnded,
+      onError: hooks.onError,
+      onWord: hooks.onWord,
+    });
   }
 
-  private async startBrowser(text: string, voiceId: VoiceId, speed: number, hooks: PlayerHooks): Promise<void> {
+  private async startBrowser(
+    text: string,
+    voiceId: VoiceId,
+    speed: number,
+    buffer: number,
+    hooks: PlayerHooks,
+  ): Promise<void> {
     if (!canUseBrowserTts()) throw new Error('This browser cannot run the on-device voice.');
     const host = kokoroHost();
+    let info;
     try {
-      await host.load(hooks.onProgress);
+      info = await host.load(hooks.onProgress);
     } catch (error) {
       resetKokoroHost();
       throw error;
     }
     if (this.stopped) return;
-    const segments = segmentText(normalizeText(text));
+    writeAloudDiag({
+      runtime: info.runtime,
+      threads: info.threads,
+      isolated: info.isolated,
+      buffer,
+      timings: [],
+    });
+    const segments = segmentText(normalizeText(text), BROWSER_SEGMENT_LIMITS);
     if (!segments.length) throw new Error('Paste some text to read aloud.');
     const voice = browserVoiceName(voiceId);
     const queue = new AudioQueue();
     this.audio = queue;
-    await queue.start(this.pipeline(segments, voice, speed, host), hooks);
+    await queue.start(this.pipeline(segments, voice, speed, buffer, host), this.audioHooks(hooks), {
+      buffer,
+      expected: segments.length,
+    });
   }
 
-  private async *pipeline(
+  private audioHooks(hooks: PlayerHooks) {
+    return {
+      onPlaying: hooks.onPlaying,
+      onEnded: hooks.onEnded,
+      onError: hooks.onError,
+      onWord: hooks.onWord,
+      onTiming: (timing: SentenceTiming) => {
+        writeAloudDiag({ timings: [...readAloudDiag().timings, timing] });
+      },
+    };
+  }
+
+  private pipeline(
     segments: { text: string }[],
     voice: string,
     speed: number,
+    buffer: number,
     host: ReturnType<typeof kokoroHost>,
   ) {
-    let next = host.speak(segments[0]!.text, voice, speed);
-    for (let index = 0; index < segments.length; index += 1) {
-      if (this.stopped) return;
-      const audio = await next;
-      if (index + 1 < segments.length) {
-        next = host.speak(segments[index + 1]!.text, voice, speed);
-      }
-      yield { index, samples: audio.samples, sampleRate: audio.sampleRate };
-    }
+    return pullAhead(segments, buffer, async (segment, index) => {
+      if (this.stopped) throw new Error('Stopped');
+      const audio = await host.speak(segment.text, voice, speed);
+      return {
+        index,
+        samples: audio.samples,
+        sampleRate: audio.sampleRate,
+        text: segment.text,
+        generateMs: audio.generateMs,
+      };
+    });
   }
 }

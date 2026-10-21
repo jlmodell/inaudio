@@ -9,9 +9,15 @@ import {
 import {
   BROWSER_VOICE_BY_ID,
   browserVoiceName,
+  clampReadSpeed,
   DEFAULT_READ_ALOUD_ENGINE,
   effectiveReadAloudEngine,
+  kokoroRuntime,
+  MAX_READ_SPEED,
   readAloudProgressPercent,
+  readAloudRuntimeLabel,
+  sentenceRealtimeFactor,
+  wasmThreadCount,
 } from '../src/shared/web/read-aloud-engine.ts';
 
 test('read-aloud defaults to the on-device voice', () => {
@@ -44,4 +50,24 @@ test('download progress is a 0-100 percent', () => {
   assert.equal(readAloudProgressPercent(50, 100), 50);
   assert.equal(readAloudProgressPercent(100, 100), 100);
   assert.equal(readAloudProgressPercent(1, 0), 0);
+});
+
+test('read speed clamps to 0.5–3', () => {
+  assert.equal(MAX_READ_SPEED, 3);
+  assert.equal(clampReadSpeed(1.25), 1.25);
+  assert.equal(clampReadSpeed(0.1), 0.5);
+  assert.equal(clampReadSpeed(4), 3);
+  assert.equal(clampReadSpeed(Number.NaN), 1);
+});
+
+test('Kokoro runtime follows device and isolation', () => {
+  assert.equal(wasmThreadCount(false, 8), 1);
+  assert.equal(wasmThreadCount(true, 16), 8);
+  assert.equal(wasmThreadCount(true, 4), 4);
+  assert.equal(kokoroRuntime('webgpu', 1), 'webgpu');
+  assert.equal(kokoroRuntime('wasm', 4), 'wasm-multi');
+  assert.equal(kokoroRuntime('wasm', 1), 'wasm-single');
+  assert.equal(readAloudRuntimeLabel('wasm-single'), 'WASM, 1 thread');
+  assert.equal(sentenceRealtimeFactor({ index: 0, count: 1, chars: 10, generateMs: 2000, durationMs: 1000 }), 2);
+  assert.equal(sentenceRealtimeFactor({ index: 0, count: 1, chars: 10, generateMs: 500, durationMs: 0 }), 0);
 });

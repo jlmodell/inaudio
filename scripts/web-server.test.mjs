@@ -228,10 +228,26 @@ if (!skipWithoutBuild()) {
       assert.equal(chunk.index, index);
       assert.equal(chunk.count, chunks.length);
       assert.equal(typeof chunk.sampleRate, 'number');
+      assert.equal(typeof chunk.text, 'string');
+      assert.ok(chunk.text.length > 0);
+      assert.equal(typeof chunk.generateMs, 'number');
       const wav = Buffer.from(chunk.wav, 'base64');
       assert.ok(wav.byteLength > 44);
       assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
     }
+
+    const fast = await fetch(`${base}/api/speak/stream`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, speed: 3 }),
+    });
+    assert.equal(fast.status, 200);
+    const tooFast = await fetch(`${base}/api/speak/stream`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, speed: 3.1 }),
+    });
+    assert.equal(tooFast.status, 400);
     const logs = server.logs.join('');
     assert.match(logs, /Speak stream opened in \d+ms/);
     assert.match(logs, /First audio flushed at \d+ms/);
@@ -246,13 +262,24 @@ if (!skipWithoutBuild()) {
 
     const settings = await fetch(`${base}/api/settings`, { headers }).then((r) => r.json());
     assert.equal(settings.readAloudEngine, 'browser');
+    assert.equal(settings.speedReading, false);
+    assert.equal(settings.readAloudBuffer, 3);
+    assert.equal(settings.speed, 1);
 
     const patched = await fetch(`${base}/api/settings`, {
       method: 'PATCH',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ readAloudEngine: 'speech' }),
+      body: JSON.stringify({
+        readAloudEngine: 'speech',
+        speed: 2.5,
+        speedReading: true,
+        readAloudBuffer: 4,
+      }),
     }).then((r) => r.json());
     assert.equal(patched.readAloudEngine, 'speech');
+    assert.equal(patched.speed, 2.5);
+    assert.equal(patched.speedReading, true);
+    assert.equal(patched.readAloudBuffer, 4);
 
     const locked = await fetch(`${base}/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/config.json`);
     assert.equal(locked.status, 401);

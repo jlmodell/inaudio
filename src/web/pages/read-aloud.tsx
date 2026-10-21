@@ -2,13 +2,15 @@ import { Pause, Play, Square } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { KOKORO_VOICES, type VoiceId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
-import { readAloudProgressPercent } from '@shared/web/read-aloud-engine';
+import { READ_SPEED_PRESETS, readAloudProgressPercent } from '@shared/web/read-aloud-engine';
 import { Button } from '@renderer/components/ui/button';
 import { Notice, PageHeader } from '@renderer/components/ui/layout';
 import { Progress } from '@renderer/components/ui/progress';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
+import { Switch } from '@renderer/components/ui/switch';
 import { useSettings, useStatus, useUpdateSettings } from '../queries';
+import { IsolationNotice, ReadAloudDiagLine } from '../tts/diag-line';
 import { ReadAloudPlayer, type ReadAloudProgress } from '../tts/player';
 
 export function ReadAloudPage() {
@@ -19,6 +21,7 @@ export function ReadAloudPage() {
   const serverReady = !!status?.tts.loaded;
   const needsServer = engine === 'server';
   const [text, setText] = useState('');
+  const [word, setWord] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -40,13 +43,21 @@ export function ReadAloudPage() {
     setError(null);
     setNotice(null);
     setProgress(null);
+    setWord('');
     setPhase('loading');
     const next = player.current ?? new ReadAloudPlayer();
     player.current = next;
     await next.start(
-      { text: clipped, voiceId: settings.voiceId, speed: settings.speed, engine },
+      {
+        text: clipped,
+        voiceId: settings.voiceId,
+        speed: settings.speed,
+        engine,
+        buffer: settings.readAloudBuffer,
+      },
       {
         onProgress: (value) => setProgress(value),
+        onWord: (nextWord) => setWord(nextWord),
         onPlaying: () => {
           setPhase('playing');
           setProgress(null);
@@ -54,6 +65,7 @@ export function ReadAloudPage() {
         onEnded: () => {
           setPhase('idle');
           setProgress(null);
+          setWord('');
         },
         onFallback: (_used, reason) => {
           setNotice(
@@ -63,6 +75,7 @@ export function ReadAloudPage() {
         onError: (caught) => {
           setPhase('idle');
           setProgress(null);
+          setWord('');
           setError(caught.message);
         },
       },
@@ -85,10 +98,12 @@ export function ReadAloudPage() {
     player.current?.stop();
     setPhase('idle');
     setProgress(null);
+    setWord('');
   };
 
   const blocked = needsServer && !serverReady;
   const percent = progress ? readAloudProgressPercent(progress.loaded, progress.total) : 0;
+  const speedReading = settings.speedReading;
 
   return (
     <div className="grid gap-6">
@@ -109,31 +124,66 @@ export function ReadAloudPage() {
           }))}
         />
         <label className="grid min-w-48 flex-1 gap-1">
-          <span className="text-xs text-muted">Speed {settings.speed.toFixed(1)}×</span>
+          <span className="text-xs text-muted">Speed {settings.speed}×</span>
           <Slider
             aria-label="Reading speed"
             min={0.5}
-            max={2}
-            step={0.1}
+            max={3}
+            step={0.05}
             value={[settings.speed]}
             onValueChange={([speed]) => speed !== undefined && update.mutate({ speed })}
           />
         </label>
       </div>
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder="Paste or type something to hear it."
-        rows={10}
-        className="w-full resize-y rounded-[12px] border border-line bg-surface px-4 py-3 text-base leading-relaxed outline-none focus:border-accent"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        {READ_SPEED_PRESETS.map((preset) => (
+          <Button
+            key={preset}
+            size="sm"
+            variant={settings.speed === preset ? 'primary' : 'secondary'}
+            onClick={() => update.mutate({ speed: preset })}
+          >
+            {preset}×
+          </Button>
+        ))}
+        <label className="ml-auto flex items-center gap-2 text-sm">
+          <span>Speed reading</span>
+          <Switch
+            checked={speedReading}
+            onCheckedChange={(next) => update.mutate({ speedReading: next })}
+            aria-label="Speed reading"
+          />
+        </label>
+      </div>
+      {speedReading && phase !== 'idle' ? (
+        <div className="grid min-h-48 place-items-center rounded-[12px] border border-line bg-sunken px-6 py-12">
+          <p className="text-center text-4xl font-semibold tracking-tight text-ink">{word || (phase === 'loading' ? '…' : '')}</p>
+        </div>
+      ) : (
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder="Paste or type something to hear it."
+          rows={10}
+          className="w-full resize-y rounded-[12px] border border-line bg-surface px-4 py-3 text-base leading-relaxed outline-none focus:border-accent"
+        />
+      )}
+      {speedReading && phase !== 'idle' && (
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          readOnly
+          rows={4}
+          className="w-full resize-y rounded-[12px] border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted outline-none"
+        />
+      )}
       {needsServer && status && !serverReady && (status.tts.error || status.message) && (
         <Notice tone="danger">{status.tts.error || status.message}</Notice>
       )}
       {needsServer && status && !serverReady && !status.tts.error && !status.message && (
         <Notice>The server voice is still loading.</Notice>
       )}
-      {engine === 'speech' && <Notice>Using this browser's built-in voice. You can switch in Settings.</Notice>}
+      {engine === 'speech' && <Notice>Using this browser&apos;s built-in voice. You can switch in Settings.</Notice>}
       {progress && (
         <div className="grid gap-2">
           <Notice>
@@ -145,6 +195,8 @@ export function ReadAloudPage() {
       )}
       {notice && <Notice>{notice}</Notice>}
       {error && <Notice tone="danger">{error}</Notice>}
+      <IsolationNotice />
+      <ReadAloudDiagLine />
       <div className="flex flex-wrap gap-2">
         {phase === 'idle' || phase === 'loading' ? (
           <Button variant="primary" onClick={() => void play()} disabled={!text.trim() || blocked || phase === 'loading'}>
