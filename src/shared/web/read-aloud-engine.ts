@@ -60,6 +60,13 @@ export function wasmThreadCount(isolated: boolean, cores: number): number {
   return Math.min(8, Math.max(1, Math.floor(cores) || 1));
 }
 
+export type KokoroDtype = 'fp32' | 'q8';
+
+/** q8 on WebGPU produces noise on the multilingual v1.0 ONNX. */
+export function kokoroDtype(device: 'wasm' | 'webgpu'): KokoroDtype {
+  return device === 'webgpu' ? 'fp32' : 'q8';
+}
+
 export function kokoroRuntime(device: 'wasm' | 'webgpu', threads: number): ReadAloudRuntime {
   if (device === 'webgpu') return 'webgpu';
   return threads > 1 ? 'wasm-multi' : 'wasm-single';

@@ -1,11 +1,17 @@
-import { kokoroRuntime, wasmThreadCount, type ReadAloudRuntime } from '@shared/web/read-aloud-engine';
+import { kokoroRuntime, wasmThreadCount, type KokoroDtype, type ReadAloudRuntime } from '@shared/web/read-aloud-engine';
 import { isWebGpuFailure, logVoiceError, workerFailureText } from '@shared/web/voice-error';
 import { preferredKokoroDevice } from './detect';
 import type { KokoroDevice, KokoroWorkerIn, KokoroWorkerOut } from './protocol';
 
 type ProgressHook = (progress: { file: string; loaded: number; total: number }) => void;
 
-export type KokoroLoadInfo = { runtime: ReadAloudRuntime; threads: number; isolated: boolean; device: KokoroDevice };
+export type KokoroLoadInfo = {
+  runtime: ReadAloudRuntime;
+  threads: number;
+  isolated: boolean;
+  device: KokoroDevice;
+  dtype: KokoroDtype;
+};
 
 /**
  * One Web Worker holds the Kokoro session. Speaks are queued in the worker so
@@ -142,6 +148,7 @@ export class KokoroHost {
             threads: event.data.threads,
             isolated: event.data.isolated,
             device: event.data.device,
+            dtype: event.data.dtype,
           };
           this.info = info;
           settle(undefined, info);

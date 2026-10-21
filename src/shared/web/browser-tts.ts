@@ -39,8 +39,24 @@ export const BROWSER_TTS_FILES: readonly BrowserTtsFile[] = [
 
 export const BROWSER_TTS_BYTES = BROWSER_TTS_FILES.reduce((sum, file) => sum + file.bytes, 0);
 
-/** One English style pack: 510 lengths × 256 floats. */
-export const BROWSER_TTS_VOICE_BYTES = 522_240;
+/** One English style pack: 510 lengths × 256 little-endian float32s. */
+export const BROWSER_TTS_VOICE_ROWS = 510;
+export const BROWSER_TTS_VOICE_WIDTH = 256;
+export const BROWSER_TTS_VOICE_BYTES = BROWSER_TTS_VOICE_ROWS * BROWSER_TTS_VOICE_WIDTH * 4;
+
+export function parseEnglishVoicePack(buffer: ArrayBuffer, name: string): Float32Array {
+  if (buffer.byteLength !== BROWSER_TTS_VOICE_BYTES) {
+    throw new Error(`The on-device voice "${name}" is ${buffer.byteLength} bytes, not an English style pack.`);
+  }
+  const pack = new Float32Array(buffer.slice(0));
+  if (pack.length !== BROWSER_TTS_VOICE_ROWS * BROWSER_TTS_VOICE_WIDTH) {
+    throw new Error(`The on-device voice "${name}" is ${pack.length} floats, not 510×256.`);
+  }
+  for (const value of pack) {
+    if (!Number.isFinite(value)) throw new Error(`The on-device voice "${name}" is not finite float32.`);
+  }
+  return pack;
+}
 
 /** American/British only. `zf_`/`zm_` are Chinese; `jf_`/`jm_` are Japanese. */
 export const ENGLISH_KOKORO_VOICE = /^(?:af|am|bf|bm)_[a-z]+$/;

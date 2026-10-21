@@ -9,11 +9,18 @@ import {
   BROWSER_TTS_FILES,
   BROWSER_TTS_MODEL_ID,
   BROWSER_TTS_VOICE_BYTES,
+  BROWSER_TTS_VOICE_ROWS,
+  BROWSER_TTS_VOICE_WIDTH,
   browserTtsFile,
+  parseEnglishVoicePack,
   browserTtsVoicePath,
   browserTtsVoiceUrl,
   isEnglishKokoroVoice,
 } from '../src/shared/web/browser-tts.ts';
+import {
+  KOKORO_ENGLISH_SAMPLE_IDS,
+  kokoroStyleOffset,
+} from '../src/shared/web/kokoro-phonemes.ts';
 import {
   BROWSER_VOICE_BY_ID,
   browserVoiceName,
@@ -21,6 +28,7 @@ import {
   DEFAULT_READ_ALOUD_ENGINE,
   effectiveReadAloudEngine,
   formatSpokenDiag,
+  kokoroDtype,
   kokoroRuntime,
   MAX_READ_SPEED,
   readAloudProgressPercent,
@@ -62,12 +70,20 @@ test('catalog Heart voice is the English pack, not a Chinese zf_ file', () => {
   assert.equal(heart.byteLength, BROWSER_TTS_VOICE_BYTES);
   assert.equal(createHash('sha256').update(heart).digest('hex'), catalog?.sha256);
   assert.notEqual(createHash('sha256').update(heart).digest('hex'), createHash('sha256').update(xiaoxiao).digest('hex'));
+  const pack = parseEnglishVoicePack(heart.buffer.slice(heart.byteOffset, heart.byteOffset + heart.byteLength), 'af_heart');
+  assert.equal(pack.length, BROWSER_TTS_VOICE_ROWS * BROWSER_TTS_VOICE_WIDTH);
+  const offset = kokoroStyleOffset(KOKORO_ENGLISH_SAMPLE_IDS.length);
+  assert.equal(offset % BROWSER_TTS_VOICE_WIDTH, 0);
+  const style = pack.slice(offset, offset + BROWSER_TTS_VOICE_WIDTH);
+  assert.equal(style.length, BROWSER_TTS_VOICE_WIDTH);
+  assert.ok(style.some((value) => value !== 0));
 });
 
 test('browser TTS catalog is the q8 model plus the English voices', () => {
   assert.equal(BROWSER_TTS_MODEL_ID, 'onnx-community/Kokoro-82M-v1.0-ONNX');
   assert.ok(BROWSER_TTS_BYTES > 90_000_000);
   assert.ok(browserTtsFile(`${BROWSER_TTS_MODEL_ID}/onnx/model_quantized.onnx`));
+  assert.equal(browserTtsFile(`${BROWSER_TTS_MODEL_ID}/onnx/model.onnx`), undefined);
   assert.ok(browserTtsFile(`${BROWSER_TTS_MODEL_ID}/voices/af_heart.bin`));
   assert.equal(browserTtsFile('nope'), undefined);
   assert.ok(BROWSER_TTS_FILES.every((file) => file.sha256.length === 64));
@@ -95,6 +111,8 @@ test('Kokoro runtime follows device and isolation', () => {
   assert.equal(kokoroRuntime('webgpu', 1), 'webgpu');
   assert.equal(kokoroRuntime('wasm', 4), 'wasm-multi');
   assert.equal(kokoroRuntime('wasm', 1), 'wasm-single');
+  assert.equal(kokoroDtype('webgpu'), 'fp32');
+  assert.equal(kokoroDtype('wasm'), 'q8');
   assert.equal(readAloudRuntimeLabel('wasm-single'), 'WASM, 1 thread');
   assert.equal(sentenceRealtimeFactor({ index: 0, count: 1, chars: 10, generateMs: 2000, durationMs: 1000 }), 2);
   assert.equal(sentenceRealtimeFactor({ index: 0, count: 1, chars: 10, generateMs: 500, durationMs: 0 }), 0);

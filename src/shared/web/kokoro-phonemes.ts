@@ -14,6 +14,9 @@ export type EspeakPhonemize = (text: string, language: string) => Promise<string
 /** `$` wraps every sequence (BOS/EOS) in tokenizer.json. */
 export const KOKORO_PAD_ID = 0;
 
+/** Kokoro v1.0 ONNX always emits 24 kHz PCM. */
+export const KOKORO_SAMPLE_RATE = 24_000;
+
 /** Character ids from Kokoro-82M-v1.0-ONNX/tokenizer.json. */
 export const KOKORO_PHONEME_IDS: Readonly<Record<string, number>> = Object.freeze({
   $: 0,
