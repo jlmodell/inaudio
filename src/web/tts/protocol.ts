@@ -8,5 +8,13 @@ export type KokoroWorkerIn =
 export type KokoroWorkerOut =
   | { type: 'progress'; file: string; loaded: number; total: number }
   | { type: 'ready'; device: KokoroDevice; threads: number; isolated: boolean }
-  | { type: 'audio'; id: number; samples: Float32Array; sampleRate: number; generateMs: number }
+  | {
+      type: 'audio';
+      id: number;
+      samples: Float32Array;
+      sampleRate: number;
+      generateMs: number;
+      phonemes: string;
+      voice: string;
+    }
   | { type: 'error'; id?: number; message: string; name?: string; stack?: string };

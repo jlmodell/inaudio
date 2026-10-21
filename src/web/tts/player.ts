@@ -140,6 +140,8 @@ export class ReadAloudPlayer {
       isolated: info.isolated,
       buffer,
       timings: [],
+      voice: null,
+      phonemes: null,
     });
     const segments = segmentText(normalizeText(text), BROWSER_SEGMENT_LIMITS);
     if (!segments.length) throw new Error('Paste some text to read aloud.');
@@ -159,7 +161,11 @@ export class ReadAloudPlayer {
       onError: hooks.onError,
       onWord: hooks.onWord,
       onTiming: (timing: SentenceTiming) => {
-        writeAloudDiag({ timings: [...readAloudDiag().timings, timing] });
+        writeAloudDiag({
+          timings: [...readAloudDiag().timings, timing],
+          voice: timing.voice ?? readAloudDiag().voice,
+          phonemes: timing.phonemes ?? readAloudDiag().phonemes,
+        });
       },
     };
   }
@@ -174,12 +180,15 @@ export class ReadAloudPlayer {
     return pullAhead(segments, buffer, async (segment, index) => {
       if (this.stopped) throw new Error('Stopped');
       const audio = await host.speak(segment.text, voice, speed);
+      writeAloudDiag({ voice: audio.voice, phonemes: audio.phonemes });
       return {
         index,
         samples: audio.samples,
         sampleRate: audio.sampleRate,
         text: segment.text,
         generateMs: audio.generateMs,
+        phonemes: audio.phonemes,
+        voice: audio.voice,
       };
     });
   }

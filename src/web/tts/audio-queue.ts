@@ -7,6 +7,8 @@ export type PcmChunk = {
   sampleRate: number;
   text?: string;
   generateMs?: number;
+  phonemes?: string;
+  voice?: string;
 };
 
 type QueueHooks = {
@@ -43,7 +45,9 @@ export class AudioQueue {
     let nextAt = ctx.currentTime + 0.02;
     let started = false;
     let lastEnded = Promise.resolve();
-    const ready: Array<(AudioBuffer & { text?: string; generateMs?: number }) | undefined> = [];
+    const ready: Array<
+      (AudioBuffer & { text?: string; generateMs?: number; phonemes?: string; voice?: string }) | undefined
+    > = [];
     let pumpDone = false;
     let pumpError: Error | undefined;
     let wake = () => {};
@@ -58,9 +62,13 @@ export class AudioQueue {
         const buffer = pcmBuffer(ctx, chunk.samples, chunk.sampleRate) as AudioBuffer & {
           text?: string;
           generateMs?: number;
+          phonemes?: string;
+          voice?: string;
         };
         buffer.text = chunk.text;
         buffer.generateMs = chunk.generateMs;
+        buffer.phonemes = chunk.phonemes;
+        buffer.voice = chunk.voice;
         ready[chunk.index] = buffer;
         wake();
       }
@@ -126,6 +134,8 @@ export class AudioQueue {
             chars: buffer.text?.length ?? 0,
             generateMs: buffer.generateMs ?? 0,
             durationMs: Math.round(buffer.duration * 1000),
+            phonemes: buffer.phonemes,
+            voice: buffer.voice,
           });
           if (!started) {
             started = true;

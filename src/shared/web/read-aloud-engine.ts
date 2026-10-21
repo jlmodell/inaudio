@@ -24,6 +24,11 @@ export function browserVoiceName(voiceId: string): string {
   return BROWSER_VOICE_BY_ID[voiceId as VoiceId] ?? 'af_heart';
 }
 
+export function formatSpokenDiag(voice?: string | null, phonemes?: string | null): string {
+  const clipped = phonemes && phonemes.length > 120 ? `${phonemes.slice(0, 117)}…` : phonemes;
+  return [voice, clipped && `Phonemes: ${clipped}`].filter(Boolean).join('. ');
+}
+
 /** A failed on-device load uses the built-in voice on that device only. */
 export function effectiveReadAloudEngine(
   preferred: ReadAloudEngine,
@@ -81,6 +86,8 @@ export interface SentenceTiming {
   chars: number;
   generateMs: number;
   durationMs: number;
+  phonemes?: string;
+  voice?: string;
 }
 
 export function sentenceRealtimeFactor(timing: SentenceTiming): number {

@@ -18,7 +18,16 @@ export class KokoroHost {
   private nextId = 1;
   private readonly pending = new Map<
     number,
-    { resolve: (audio: { samples: Float32Array; sampleRate: number; generateMs: number }) => void; reject: (error: Error) => void }
+    {
+      resolve: (audio: {
+        samples: Float32Array;
+        sampleRate: number;
+        generateMs: number;
+        phonemes: string;
+        voice: string;
+      }) => void;
+      reject: (error: Error) => void;
+    }
   >();
   private loadReject: ((error: Error) => void) | null = null;
   private onProgress: ProgressHook | null = null;
@@ -56,7 +65,7 @@ export class KokoroHost {
     text: string,
     voice: string,
     speed: number,
-  ): Promise<{ samples: Float32Array; sampleRate: number; generateMs: number }> {
+  ): Promise<{ samples: Float32Array; sampleRate: number; generateMs: number; phonemes: string; voice: string }> {
     await this.load();
     try {
       return await this.speakOnce(text, voice, speed);
@@ -90,7 +99,7 @@ export class KokoroHost {
     text: string,
     voice: string,
     speed: number,
-  ): Promise<{ samples: Float32Array; sampleRate: number; generateMs: number }> {
+  ): Promise<{ samples: Float32Array; sampleRate: number; generateMs: number; phonemes: string; voice: string }> {
     const worker = this.worker;
     if (!worker) throw new Error('The on-device voice is not loaded.');
     const id = this.nextId++;
@@ -154,6 +163,8 @@ export class KokoroHost {
         samples: message.samples,
         sampleRate: message.sampleRate,
         generateMs: message.generateMs,
+        phonemes: message.phonemes,
+        voice: message.voice,
       });
       this.pending.delete(message.id);
       return;
