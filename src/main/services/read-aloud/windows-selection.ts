@@ -49,7 +49,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
 export class WindowsSelection implements SelectionAdapter {
   readonly method = 'accessibility';
   private readonly helper = new PowerShellHelper(windowsPowerShell(), SCRIPT, REQUEST_MS, 'Selection helper');
-  private readonly fallback = resolveKeyCommand('copy');
+  private readonly fallback = resolveKeyCommand();
 
   async read(): Promise<NativeSelection> {
     if (!(await this.helper.whenReady(READY_MS)) || this.helper.busy) return { kind: 'none' };

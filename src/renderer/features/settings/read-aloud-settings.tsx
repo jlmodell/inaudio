@@ -3,10 +3,12 @@ import { KOKORO_VOICES, type VoiceId } from '@shared/domain/models';
 import type { Settings } from '@shared/domain/settings';
 import type { SystemStatus } from '@shared/domain/system';
 import { MAX_READ_ALOUD_BUFFER, MIN_READ_ALOUD_BUFFER } from '@shared/read-aloud/ahead';
+import { Button } from '@renderer/components/ui/button';
 import { Notice, Row } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
 import { Switch } from '@renderer/components/ui/switch';
+import { api } from '@renderer/lib/api';
 
 const DIRECT_READ: Partial<Record<NodeJS.Platform, string>> = {
   win32: 'Asks the app through Windows UI Automation, without touching the clipboard. Not every app supports it.',
@@ -23,7 +25,6 @@ export interface ReadAloudSettingsProps {
 /** Voice, capture and playback options for Read Aloud. */
 export function ReadAloudSettings({ tts, status, onChange }: ReadAloudSettingsProps) {
   const [speed, setSpeed] = useState<number | null>(null);
-  const copyUnavailable = status.platform === 'linux' && !status.insertion.available ? status.insertion.reason : null;
 
   return (
     <>
@@ -77,6 +78,16 @@ export function ReadAloudSettings({ tts, status, onChange }: ReadAloudSettingsPr
       </Row>
 
       <Row
+        id="settings-output-device"
+        label="Playback device"
+        description="Choose Inaudio’s output in the operating system’s sound settings."
+      >
+        <Button size="sm" onClick={() => void api.system.openSoundSettings()}>
+          Sound settings
+        </Button>
+      </Row>
+
+      <Row
         id="settings-read-aloud-capture"
         label="Read the selection directly"
         description={DIRECT_READ[status.platform] ?? 'Not available on this platform.'}
@@ -90,15 +101,11 @@ export function ReadAloudSettings({ tts, status, onChange }: ReadAloudSettingsPr
 
       <Row
         label="Copy the selection as a fallback"
-        description={
-          copyUnavailable ??
-          'For apps that do not share their selection, Inaudio sends Copy and reads the clipboard. Password fields are never copied.'
-        }
+        description="For apps that do not share their selection, Inaudio sends Copy and reads the clipboard. Password fields are never copied."
       >
         <Switch
           aria-label="Copy the selection as a fallback"
           checked={tts.copyFallback}
-          disabled={copyUnavailable !== null}
           onCheckedChange={(copyFallback) => onChange({ copyFallback })}
         />
       </Row>
@@ -112,26 +119,6 @@ export function ReadAloudSettings({ tts, status, onChange }: ReadAloudSettingsPr
           checked={tts.restoreClipboard}
           disabled={!tts.copyFallback}
           onCheckedChange={(restoreClipboard) => onChange({ restoreClipboard })}
-        />
-      </Row>
-
-      <Row
-        id="settings-read-aloud-overlay"
-        label="Show in the overlay"
-        description="The pill shows progress, with pause and stop under the pointer. Needs the overlay turned on."
-      >
-        <Switch
-          aria-label="Show Read Aloud in the overlay"
-          checked={tts.showInOverlay}
-          onCheckedChange={(showInOverlay) => onChange({ showInOverlay })}
-        />
-      </Row>
-
-      <Row label="Pause while dictating" description="Starting dictation pauses reading so the microphone does not pick it up.">
-        <Switch
-          aria-label="Pause while dictating"
-          checked={tts.pauseOnDictation}
-          onCheckedChange={(pauseOnDictation) => onChange({ pauseOnDictation })}
         />
       </Row>
 

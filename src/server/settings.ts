@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { z } from 'zod';
-import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema, type ModelId } from '@shared/domain/models';
+import { ttsModelIdSchema, voiceIdSchema, type ModelId } from '@shared/domain/models';
 import { clampAhead, DEFAULT_READ_ALOUD_BUFFER } from '@shared/read-aloud/ahead';
 import {
   DEFAULT_READ_ALOUD_ENGINE,
@@ -11,12 +11,9 @@ import {
 import type { WebSettings, WebSettingsPatch } from '@shared/web/api';
 
 const schema = z.object({
-  sttModelId: sttModelIdSchema,
   ttsModelId: ttsModelIdSchema,
   voiceId: voiceIdSchema,
   speed: z.number().min(MIN_READ_SPEED).max(MAX_READ_SPEED),
-  saveHistory: z.boolean(),
-  speechCleanup: z.boolean(),
   readAloudEngine: z.enum(READ_ALOUD_ENGINES),
   speedReading: z.boolean(),
   readAloudBuffer: z.number().transform((value) => clampAhead(value)),
@@ -24,14 +21,11 @@ const schema = z.object({
 
 const patchSchema = schema.partial().strict();
 
-export function defaultSettings(sttModelId: ModelId, ttsModelId: ModelId): WebSettings {
+export function defaultSettings(ttsModelId: ModelId): WebSettings {
   return {
-    sttModelId,
     ttsModelId,
     voiceId: '00',
     speed: 1,
-    saveHistory: true,
-    speechCleanup: false,
     readAloudEngine: DEFAULT_READ_ALOUD_ENGINE,
     speedReading: false,
     readAloudBuffer: DEFAULT_READ_ALOUD_BUFFER,

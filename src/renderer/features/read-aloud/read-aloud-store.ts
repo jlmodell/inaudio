@@ -15,7 +15,7 @@ import { api, errorMessage } from '@renderer/lib/api';
 import { encodeWav, SegmentPlayer } from '@renderer/lib/audio-player';
 import { keys, queryClient } from '@renderer/lib/queries';
 
-/** Where a session's text came from inside the app, such as a History transcript. */
+/** Where a session's text came from inside the app. */
 export interface ReadAloudOrigin {
   /** Whatever the caller uses to know its item again, e.g. a transcript id. */
   id: string;

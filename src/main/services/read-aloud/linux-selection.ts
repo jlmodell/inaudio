@@ -9,7 +9,7 @@ import type { NativeSelection, SelectionAdapter } from './selection-provider';
  */
 export class LinuxSelection implements SelectionAdapter {
   readonly method = 'primary';
-  private readonly command = resolveKeyCommand('copy');
+  private readonly command = resolveKeyCommand();
 
   async read(): Promise<NativeSelection> {
     const primary = clipboard.selection as Electron.Clipboard | undefined;

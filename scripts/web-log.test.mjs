@@ -12,21 +12,21 @@ test('download progress lines name the model and the percent', () => {
     'Downloading Kokoro English v0.19: 32% (32 / 100 bytes)',
   );
   assert.equal(
-    formatModelProgress('Parakeet TDT 0.6B v2', { state: 'verifying', bytesDone: 1, bytesTotal: 1 }),
-    'Verifying Parakeet TDT 0.6B v2',
+    formatModelProgress('Kokoro English v0.19', { state: 'verifying', bytesDone: 1, bytesTotal: 1 }),
+    'Verifying Kokoro English v0.19',
   );
   assert.equal(
-    formatModelProgress('Parakeet TDT 0.6B v2', { state: 'installed', bytesDone: 1, bytesTotal: 1 }),
-    'Installed Parakeet TDT 0.6B v2',
+    formatModelProgress('Kokoro English v0.19', { state: 'installed', bytesDone: 1, bytesTotal: 1 }),
+    'Installed Kokoro English v0.19',
   );
   assert.equal(
-    formatModelProgress('Parakeet TDT 0.6B v2', {
+    formatModelProgress('Kokoro English v0.19', {
       state: 'error',
       bytesDone: 0,
       bytesTotal: 1,
       error: '__filename is not defined',
     }),
-    'Failed Parakeet TDT 0.6B v2: __filename is not defined',
+    'Failed Kokoro English v0.19: __filename is not defined',
   );
   assert.equal(
     formatModelProgress('Kokoro English v0.19', { state: 'missing', bytesDone: 0, bytesTotal: 1 }),

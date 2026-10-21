@@ -14,8 +14,6 @@ import { useSettings, useUpdateSettings } from '@renderer/lib/queries';
 import { CompanionAvatar, companionExpression } from './companion-avatar';
 
 const STATES: readonly (readonly [CompanionEvent, string])[] = [
-  ['dictation.started', 'When I start listening'],
-  ['transcription.completed', 'When transcription finishes'],
   ['tts.started', 'When Inaudio speaks'],
   ['model.loading', 'While a model loads'],
   ['model.missing', 'When a model is unavailable'],
@@ -179,8 +177,6 @@ export function CompanionPage() {
               { value: 'top-right', label: 'Top right' },
               { value: 'bottom-left', label: 'Bottom left' },
               { value: 'bottom-right', label: 'Bottom right' },
-              { value: 'near-microphone', label: 'Near microphone' },
-              { value: 'focus-area', label: 'Above active area' },
             ]}
           />
         </Row>
@@ -198,14 +194,7 @@ export function CompanionPage() {
             <span className="w-16 text-right font-mono text-sm">{draftValue('edgeMargin', companionSettings.edgeMargin)}px</span>
           </div>
         </Row>
-        <Row label="Keep away from text" description="Adds a larger gap above the cursor when using Above active area.">
-          <Switch
-            aria-label="Keep away from text"
-            checked={companionSettings.keepAwayFromText}
-            onCheckedChange={(keepAwayFromText) => change({ keepAwayFromText })}
-          />
-        </Row>
-        <Row label="Status bubble" description="Show the live listening, transcribing, and speaking label.">
+        <Row label="Status bubble" description="Show the speaking and model-status label.">
           <Switch
             aria-label="Status bubble"
             checked={companionSettings.showBubble}
@@ -245,7 +234,7 @@ export function CompanionPage() {
             ]}
           />
         </Row>
-        <Row label="Follow your cursor" description="Its eyes track the pointer and the field you type in.">
+        <Row label="Follow your cursor" description="Its eyes track the pointer.">
           <Switch
             aria-label="Follow your cursor"
             checked={companionSettings.eyesFollow}
@@ -287,7 +276,7 @@ export function CompanionPage() {
             <span className="w-12 text-right font-mono text-sm">{Math.round(draftValue('soundVolume', companionSettings.soundVolume) * 100)}%</span>
           </div>
         </Row>
-        <Row label="Sleep after inactivity" description="The buddy settles down without changing dictation or model state.">
+        <Row label="Sleep after inactivity" description="The buddy settles down without changing reading or model state.">
           <div className="flex w-56 items-center gap-3">
             <Slider
               aria-label="Sleep after inactivity"

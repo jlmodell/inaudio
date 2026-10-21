@@ -1,23 +1,15 @@
 import { useEffect, useState } from 'react';
-import { MODEL_CATALOG, MODEL_IDS } from '@shared/domain/models';
 import { MAX_READ_ALOUD_BUFFER, MIN_READ_ALOUD_BUFFER } from '@shared/read-aloud/ahead';
 import type { ReadAloudEngine } from '@shared/web/read-aloud-engine';
 import { Button } from '@renderer/components/ui/button';
 import { PageHeader, Row, Section } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
-import { Switch } from '@renderer/components/ui/switch';
 import { api } from '../api';
 import { keys, queryClient, useSettings, useStatus, useUpdateSettings } from '../queries';
 import { ReadAloudDiagLine } from '../tts/diag-line';
 import { readDeviceFallback, subscribeDeviceFallback, writeDeviceFallback } from '../tts/device-fallback';
 import { resetKokoroHost } from '../tts/kokoro-host';
-
-const STT_OPTIONS = MODEL_IDS.filter((id) => MODEL_CATALOG[id].kind === 'stt').map((id) => ({
-  value: id,
-  label: MODEL_CATALOG[id].name,
-  hint: MODEL_CATALOG[id].summary,
-}));
 
 export function SettingsPage() {
   const { data: settings } = useSettings();
@@ -30,31 +22,9 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader title="Settings" description="These apply to this Inaudio. Desktop-only features are not here." />
-      <Section title="Speech">
-        <Row label="Speech to text" description="Downloaded on this server the first time it is needed.">
-          <Select
-            label="Speech to text"
-            value={settings.sttModelId}
-            onValueChange={(sttModelId) => update.mutate({ sttModelId })}
-            options={STT_OPTIONS}
-          />
-        </Row>
-        <Row label="Save history" description="Keep transcripts so you can find them later.">
-          <Switch
-            checked={settings.saveHistory}
-            onCheckedChange={(saveHistory) => update.mutate({ saveHistory })}
-            aria-label="Save history"
-          />
-        </Row>
-        <Row label="Speech cleanup" description="Skip quiet stretches and reduce background noise before recognition.">
-          <Switch
-            checked={settings.speechCleanup}
-            onCheckedChange={(speechCleanup) => update.mutate({ speechCleanup })}
-            aria-label="Speech cleanup"
-          />
-        </Row>
+      <Section title="Read aloud">
         <Row
-          label="Read aloud"
+          label="Voice"
           description={
             settings.readAloudEngine === 'browser'
               ? 'Downloads a voice once onto this phone or computer, then reads without waiting on the server.'

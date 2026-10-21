@@ -49,7 +49,7 @@ function osascript(): Promise<string> {
 /** macOS selection through the Accessibility API, which needs the user's permission. */
 export class MacSelection implements SelectionAdapter {
   readonly method = 'accessibility';
-  private readonly command = resolveKeyCommand('copy');
+  private readonly command = resolveKeyCommand();
 
   async read(): Promise<NativeSelection> {
     if (!systemPreferences.isTrustedAccessibilityClient(false)) return { kind: 'permission' };

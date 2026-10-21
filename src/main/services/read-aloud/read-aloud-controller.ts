@@ -15,7 +15,6 @@ import {
   type ReadAloudState,
 } from '@shared/domain/read-aloud';
 import type { Settings } from '@shared/domain/settings';
-import type { DictationPhase, OverlayReading } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
 import type { TtsResult } from '@shared/worker/protocol';
 import { aheadEnd, clampAhead } from '@shared/read-aloud/ahead';
@@ -32,7 +31,6 @@ interface ReadAloudOptions {
   send(channel: string, payload: unknown): void;
   /** Opens the main window if it is gone. Only called once the text is already captured. */
   ensureWindow(): void;
-  overlay: { setReading(reading: OverlayReading | null): void };
   tray: { setReading(reading: 'idle' | 'playing' | 'paused'): void };
   companion: { react(event: 'tts.started' | 'tts.completed', state: 'speaking' | 'ready'): void; setReading(active: boolean): void };
 }
@@ -43,12 +41,9 @@ const CAPTURE_MESSAGE: Record<Extract<SelectionResult, { ok: false }>['reason'],
   permission: 'Allow Inaudio under Privacy & Security > Accessibility to read selected text.',
   unsupported: 'This app does not share its selection. Paste the text into Read Aloud instead.',
 };
-/** How long a failure stays on the overlay before the pill goes back to dictation. */
-const OVERLAY_ERROR_MS = 4_000;
-
 /**
- * The single authority over Read Aloud. Shortcuts, the tray, the overlay and the page all ask
- * this controller, which captures the text, splits it, synthesizes a few segments ahead in the
+ * The single authority over Read Aloud. Shortcuts, the tray and the page all ask this
+ * controller, which captures the text, splits it, synthesizes a few segments ahead in the
  * speech worker, and tells the main window what to play. The window reports back when a
  * segment ends. Text is never logged.
  */
@@ -149,11 +144,6 @@ export class ReadAloudController {
     this.state = { ...this.state, status: this.state.sessionId ? 'stopped' : 'idle', waiting: false };
     this.publish();
     if (speaking) this.options.companion.react('tts.completed', 'ready');
-  }
-
-  /** Starting dictation pauses reading, so the microphone does not record the speakers. */
-  onDictation(phase: DictationPhase): void {
-    if (phase === 'listening' && this.options.settings().tts.pauseOnDictation) this.pause();
   }
 
   /** A new voice or speed applies from the next segment; the one playing finishes as it is. */
@@ -372,32 +362,15 @@ export class ReadAloudController {
     this.publish();
     if (wasSpeaking) this.options.companion.react('tts.completed', 'ready');
     const settings = this.options.settings();
-    const overlayShows = settings.overlay.enabled && settings.tts.showInOverlay;
-    if (!overlayShows && settings.tray.notifications && Notification.isSupported()) {
+    if (settings.tray.notifications && Notification.isSupported()) {
       new Notification({ title: 'Read Aloud', body: message, silent: true, icon: appIcon() }).show();
     }
   }
 
-  private overlayReading(): OverlayReading | null {
-    const { status, index, count, waiting, message } = this.state;
-    if (status === 'error') return { status, index, count, waiting, message };
-    if (!readAloudActive(status)) return null;
-    return { status: status as OverlayReading['status'], index, count, waiting, message: '' };
-  }
-
   private publish(): void {
     this.options.send(EVENTS.readAloudState, this.state);
-    const showInOverlay = this.options.settings().tts.showInOverlay;
-    this.options.overlay.setReading(showInOverlay ? this.overlayReading() : null);
     if (this.errorTimer) clearTimeout(this.errorTimer);
     this.errorTimer = null;
-    if (this.state.status === 'error') {
-      this.errorTimer = setTimeout(() => {
-        this.errorTimer = null;
-        if (this.state.status === 'error') this.options.overlay.setReading(null);
-      }, OVERLAY_ERROR_MS);
-      this.errorTimer.unref();
-    }
     const { status } = this.state;
     this.options.tray.setReading(status === 'paused' ? 'paused' : readAloudActive(status) && status !== 'capturing' ? 'playing' : 'idle');
     this.options.companion.setReading(status === 'playing' || status === 'preparing');

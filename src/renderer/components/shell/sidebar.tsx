@@ -2,11 +2,7 @@ import * as NavigationMenu from '@radix-ui/react-navigation-menu';
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Wordmark } from '@renderer/components/brand/logo';
 import {
-  AudioLinesMotion,
   BoxesMotion,
-  CaptionsMotion,
-  HistoryMotion,
-  MicMotion,
   PanelLeftCloseMotion,
   PanelLeftOpenMotion,
   Settings2Motion,
@@ -19,63 +15,40 @@ import {
 import { IconButton } from '@renderer/components/ui/icon-button';
 import { Tooltip } from '@renderer/components/ui/tooltip';
 import { Waveform } from '@renderer/components/ui/waveform';
-import { useLive } from '@renderer/features/live/live-store';
 import { useReadAloud } from '@renderer/features/read-aloud/read-aloud-store';
 import { cn } from '@renderer/lib/cn';
 import { formatAccelerator } from '@renderer/lib/format';
 import { useSettings, useSystemStatus, useUpdateSettings } from '@renderer/lib/queries';
-import { useDictation } from '@renderer/stores/dictation-store';
 import { useUi, type Route } from '@renderer/stores/ui-store';
 import { EngineStatus } from './engine-status';
 
 type NavItem = { route: Route; label: string; icon: MotionIcon };
 
-/** The app's pages in groups, the same way Settings lists its categories. */
 const GROUPS: { label: string; items: NavItem[] }[] = [
   {
-    label: 'Speak',
-    items: [
-      { route: 'dictation', label: 'Dictation', icon: MicMotion },
-      { route: 'live', label: 'Live transcript', icon: CaptionsMotion },
-      { route: 'read-aloud', label: 'Read Aloud', icon: Volume2Motion },
-    ],
+    label: 'Listen',
+    items: [{ route: 'read-aloud', label: 'Read Aloud', icon: Volume2Motion }],
   },
-  { label: 'Library', items: [{ route: 'history', label: 'History', icon: HistoryMotion }] },
   {
     label: 'Engine',
     items: [
       { route: 'models', label: 'Models', icon: BoxesMotion },
-      { route: 'audio', label: 'Audio', icon: AudioLinesMotion },
       { route: 'companion', label: 'Companion', icon: SparklesMotion },
     ],
   },
 ];
 
-/** What is happening on a page right now, drawn as a small waveform. */
-type Activity = 'listening' | 'capturing' | 'reading';
-const ACTIVITY_LABEL: Record<Activity, string> = {
-  listening: 'Listening',
-  capturing: 'Recording system audio',
-  reading: 'Reading aloud',
-};
-
-/** The dictation and live markers follow their input level; reading keeps an even rhythm. */
-function ActivityWave({ activity, compact }: { activity: Activity; compact: boolean }) {
-  const dictationLevel = useDictation((s) => (activity === 'listening' ? s.level : 0));
-  const liveLevel = useLive((s) => (activity === 'capturing' ? s.level : 0));
-  const level = activity === 'listening' ? dictationLevel : activity === 'capturing' ? liveLevel : undefined;
+function ActivityWave({ compact }: { compact: boolean }) {
   return (
     <Waveform
-      level={level}
       bars={compact ? 3 : 4}
-      label={ACTIVITY_LABEL[activity]}
+      label="Reading aloud"
       className={cn('text-accent', compact ? 'absolute top-1 right-1.5 h-2.5 gap-px' : 'ml-auto')}
       barClassName={compact ? 'w-[2px]' : 'w-[2.5px]'}
     />
   );
 }
 
-/** Plays a motion icon once when its page opens, not when the app first draws. */
 function usePlayOnActive(icon: RefObject<MotionIconHandle | null>, active: boolean | undefined) {
   const mounted = useRef(false);
   useEffect(() => {
@@ -91,17 +64,15 @@ function NavButton({
   collapsed,
   onClick,
   trailing,
-  activity,
+  reading,
 }: {
   label: string;
   icon: MotionIcon;
   active?: boolean;
   collapsed: boolean;
   onClick(): void;
-  /** Quiet text on the right, such as a shortcut. Hidden when collapsed. */
   trailing?: ReactNode;
-  /** Something running on that page, shown as a waveform. */
-  activity?: Activity | null;
+  reading?: boolean;
 }) {
   const icon = useRef<MotionIconHandle>(null);
   usePlayOnActive(icon, active);
@@ -121,8 +92,8 @@ function NavButton({
     >
       <Icon ref={icon} className={cn('size-[17px] shrink-0', active && 'text-accent')} />
       {!collapsed && <span className="truncate">{label}</span>}
-      {!collapsed && trailing && !activity && <span className="ml-auto truncate pl-2 text-[11px] text-faint">{trailing}</span>}
-      {activity && <ActivityWave activity={activity} compact={collapsed} />}
+      {!collapsed && trailing && !reading && <span className="ml-auto truncate pl-2 text-[11px] text-faint">{trailing}</span>}
+      {reading && <ActivityWave compact={collapsed} />}
     </button>
   );
   return collapsed ? (
@@ -134,34 +105,20 @@ function NavButton({
   );
 }
 
-/**
- * The app's navigation: pages in groups, then what is always within reach at the bottom:
- * what's new, the engine's state, Settings and the collapse control.
- */
 export function Sidebar({ macInset }: { macInset: boolean }) {
   const { route, navigate } = useUi();
   const openWhatsNew = useUi((s) => s.setWhatsNew);
   const { data: settings } = useSettings();
   const { data: status } = useSystemStatus();
   const update = useUpdateSettings();
-  const phase = useDictation((s) => s.phase);
-  const liveCapturing = useLive((s) => s.live.phase === 'capturing');
   const reading = useReadAloud((s) => s.state.status === 'playing' || s.state.status === 'preparing');
   const whatsNewIcon = useRef<MotionIconHandle>(null);
   const toggleIcon = useRef<MotionIconHandle>(null);
   const collapsed = settings?.appearance.sidebarCollapsed ?? false;
   const unseen = !!status?.appVersion && settings?.announcements.seenVersion !== status.appVersion;
-  const shortcut = settings && status ? formatAccelerator(settings.dictation.shortcut, status.platform).join(' ') : '';
+  const shortcut = settings && status ? formatAccelerator(settings.tts.shortcut, status.platform).join(' ') : '';
 
   const toggle = () => update.mutate({ appearance: { sidebarCollapsed: !collapsed } });
-  const activity = (target: Route): Activity | null =>
-    target === 'dictation' && phase === 'listening'
-      ? 'listening'
-      : target === 'live' && liveCapturing
-        ? 'capturing'
-        : target === 'read-aloud' && reading
-          ? 'reading'
-          : null;
 
   return (
     <aside
@@ -192,8 +149,8 @@ export function Sidebar({ macInset }: { macInset: boolean }) {
                         active={item.route === route}
                         collapsed={collapsed}
                         onClick={() => navigate(item.route)}
-                        trailing={item.route === 'dictation' ? shortcut : undefined}
-                        activity={activity(item.route)}
+                        trailing={item.route === 'read-aloud' ? shortcut : undefined}
+                        reading={item.route === 'read-aloud' && reading}
                       />
                     </NavigationMenu.Link>
                   </NavigationMenu.Item>

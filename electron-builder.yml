@@ -50,5 +50,5 @@ linux:
       arch:
         - x64
   icon: assets/icons/icon.png
-  synopsis: Offline desktop voice input
-  description: Local, offline desktop voice input with on-device speech recognition and speech synthesis.
+  synopsis: Offline desktop read-aloud
+  description: Local, offline desktop read-aloud with on-device text-to-speech.

@@ -3,10 +3,9 @@ import { assertTrustedSender } from './trusted-origin';
 
 /**
  * Which window a webContents belongs to. Channels that only make sense for one surface
- * check this on top of the origin check, so the overlay cannot drive audio capture and
- * the main window cannot speak for the overlay.
+ * check this on top of the origin check.
  */
-export type Surface = 'main' | 'overlay' | 'companion' | 'live';
+export type Surface = 'main' | 'companion';
 
 const surfaces = new Map<number, Surface>();
 

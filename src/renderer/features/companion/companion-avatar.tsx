@@ -29,9 +29,6 @@ import type {
  */
 export function companionExpression(state: CompanionState, personality: CompanionPersonality): Expression {
   switch (state) {
-    case 'listening':
-      return surprised;
-    case 'transcribing':
     case 'thinking':
       return thinking;
     case 'speaking':

@@ -6,7 +6,6 @@ services:
     environment:
       # Leave empty for an open LAN. Set a password before exposing the port further.
       INAUDIO_PASSWORD: ${INAUDIO_PASSWORD:-}
-      INAUDIO_STT_MODEL: ${INAUDIO_STT_MODEL:-parakeet-tdt-0.6b-v2-int8}
       INAUDIO_TTS_MODEL: ${INAUDIO_TTS_MODEL:-kokoro-en-v0_19}
     volumes:
       - inaudio-data:/data

@@ -106,11 +106,15 @@ if (!skipWithoutBuild()) {
     assert.equal(status.browserTts.installed, false);
     assert.ok(status.browserTts.bytesTotal > 0);
 
-    const history = await fetch(`${base}/api/history`);
-    assert.equal(history.status, 401);
+    const speak = await fetch(`${base}/api/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello' }),
+    });
+    assert.equal(speak.status, 401);
   });
 
-  test('web server transcribes a clip and protects routes', async (t) => {
+  test('web server protects routes until sign-in', async (t) => {
     const server = await startServer();
     t.after(() => server.close());
     const base = `http://127.0.0.1:${server.port}`;
@@ -121,7 +125,7 @@ if (!skipWithoutBuild()) {
     assert.equal(firstStatus.authRequired, true);
     assert.equal(firstStatus.authenticated, false);
 
-    const locked = await fetch(`${base}/api/history`);
+    const locked = await fetch(`${base}/api/settings`);
     assert.equal(locked.status, 401);
 
     const login = await fetch(`${base}/api/login`, {
@@ -136,20 +140,7 @@ if (!skipWithoutBuild()) {
     const headers = { Cookie: cookie.split(';', 1)[0] ?? '' };
     const status = await waitReady(base, headers);
     assert.equal(status.authenticated, true);
-
-    const transcribed = await fetch(`${base}/api/transcribe`, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'audio/wav' },
-      body: tone(),
-    });
-    assert.equal(transcribed.status, 200);
-    const body = await transcribed.json();
-    assert.equal(body.text, 'hello from inaudio');
-    assert.ok(body.transcript?.id);
-
-    const history = await fetch(`${base}/api/history`, { headers }).then((r) => r.json());
-    assert.equal(history.total, 1);
-    assert.equal(history.items[0].text, 'hello from inaudio');
+    assert.ok(status.tts);
 
     const page = await fetch(`${base}/`, { headers });
     assert.equal(page.status, 200);
@@ -174,19 +165,12 @@ if (!skipWithoutBuild()) {
     assert.ok(wav.byteLength > 44);
     assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
 
-    const live = await fetch(`${base}/api/live/start`, { method: 'POST', headers });
-    assert.equal(live.status, 200);
-    const session = await live.json();
-    const chunk = await fetch(`${base}/api/live/${session.id}/chunk`, {
+    const gone = await fetch(`${base}/api/transcribe`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'audio/wav' },
-      body: tone(0.2),
+      body: tone(),
     });
-    assert.equal(chunk.status, 200);
-    const stopped = await fetch(`${base}/api/live/${session.id}/stop`, { method: 'POST', headers });
-    assert.equal(stopped.status, 200);
-    const finished = await stopped.json();
-    assert.equal(finished.text, 'hello from inaudio');
+    assert.equal(gone.status, 404);
 
     const failed = await fetch(`${base}/api/speak`, {
       method: 'POST',

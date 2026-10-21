@@ -11,7 +11,6 @@ import type { VoiceId } from '@shared/domain/models';
 import { api } from './lib/api';
 import './styles/index.css';
 import { CompanionAvatar, companionExpression, IDLE_MOODS } from './features/companion/companion-avatar';
-import { playCue } from './features/dictation/audio/cues';
 import { PcmPlayer } from './lib/audio-player';
 
 /** The face renders at this many px before `settings.scale`. */
@@ -23,12 +22,10 @@ const MOOD_HOLD_MS = 3_500;
 const RESUME_FLASH_MS = 2_000;
 
 /**
- * Never spoken: dictation and speech events would talk over the user or over Inaudio, and
- * idle and model events fire too often to be worth a synthesized line.
+ * Never spoken: speech events would talk over Inaudio, and idle and model events
+ * fire too often to be worth a synthesized line.
  */
 const SILENT_EVENTS: readonly CompanionEvent[] = [
-  'dictation.started',
-  'dictation.stopped',
   'tts.started',
   'tts.completed',
   'app.idle',
@@ -40,15 +37,12 @@ function Companion() {
   const [snapshot, setSnapshot] = useState<CompanionSnapshot | null>(null);
   const [outputDeviceId, setOutputDeviceId] = useState('default');
   const [tts, setTts] = useState<{ voiceId?: VoiceId; speed?: number }>({});
-  const previousState = useRef<CompanionSnapshot['state'] | null>(null);
   const spokenRevision = useRef(0);
   const pendingLine = useRef<string | null>(null);
-  const wasDictating = useRef(false);
   const speech = useRef(new PcmPlayer());
   const speechJob = useRef(0);
   const [mood, setMood] = useState<Expression | null>(null);
   const [resumeFlash, setResumeFlash] = useState(false);
-  // `travel` is the eye excursion in units of the 100-unit face; unset it stays 0.
   const gaze = useGaze({ travel: 3 });
 
   useEffect(() => {
@@ -62,7 +56,6 @@ function Companion() {
       if (mounted) setTts({ voiceId: value.tts.voiceId as VoiceId, speed: value.tts.speed });
     });
     const off = api.events.onCompanionState((value) => setSnapshot(value));
-    const offGaze = api.events.onCompanionGaze((target) => gaze.lookAt(target));
     const offSettings = api.events.onSettingsChanged((value) => {
       setOutputDeviceId(value.audio.outputDeviceId);
       setTts({ voiceId: value.tts.voiceId as VoiceId, speed: value.tts.speed });
@@ -70,54 +63,21 @@ function Companion() {
     return () => {
       mounted = false;
       off();
-      offGaze();
       offSettings();
       player.stop();
     };
-    // gaze.lookAt is stable; the hook object identity is not.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gaze.lookAt]);
-
-  useEffect(() => {
-    if (!snapshot) return;
-    const previous = previousState.current;
-    previousState.current = snapshot.state;
-    if (!snapshot.settings.soundEnabled || previous === null || previous === snapshot.state) return;
-    const cue =
-      snapshot.state === 'listening'
-        ? 'start'
-        : snapshot.state === 'speaking'
-          ? 'ready'
-          : snapshot.state === 'error' || snapshot.state === 'model-unavailable'
-            ? 'error'
-            : snapshot.state === 'attention'
-              ? 'attention'
-              : snapshot.state === 'ready'
-                ? 'stop'
-                : null;
-    if (cue) void playCue(cue, { volume: snapshot.settings.soundVolume, outputDeviceId });
-  }, [outputDeviceId, snapshot]);
+  }, []);
 
   useEffect(() => {
     if (!snapshot) return;
     const { settings } = snapshot;
-    // A new dictation silences the companion and drops whatever it was about to say.
-    if (snapshot.dictating && !wasDictating.current) {
-      pendingLine.current = null;
-      speechJob.current += 1;
-      speech.current.stop();
-    }
-    wasDictating.current = snapshot.dictating;
     if (snapshot.event && !SILENT_EVENTS.includes(snapshot.event) && snapshot.revision !== spokenRevision.current) {
       spokenRevision.current = snapshot.revision;
       pendingLine.current =
-        settings.voiceEnabled && settings.soundEnabled
-          ? companionBubbleText(snapshot.state, settings.position === 'focus-area')
-          : null;
+        settings.voiceEnabled && settings.soundEnabled ? companionBubbleText(snapshot.state) : null;
     }
-    // Lines raised during a recording or its transcription wait until it is over.
     const text = pendingLine.current;
-    if (snapshot.dictating || !text) return;
+    if (!text) return;
     pendingLine.current = null;
     const job = ++speechJob.current;
     speech.current.stop();
@@ -137,7 +97,6 @@ function Companion() {
       .catch(() => undefined);
   }, [outputDeviceId, snapshot, tts]);
 
-  // While idle and allowed moods, the face occasionally drifts somewhere small and back.
   const idleMoodOn =
     !!snapshot &&
     snapshot.state === 'idle' &&
@@ -163,7 +122,6 @@ function Companion() {
     };
   }, [idleMoodOn, personality]);
 
-  // Waking from sleep startles the face, then it settles to idle.
   const isResume = snapshot?.event === 'system.resume';
   const revision = snapshot?.revision ?? 0;
   useEffect(() => {
@@ -175,13 +133,11 @@ function Companion() {
 
   if (!snapshot) return null;
   const { companion, settings, state } = snapshot;
-  const bubble = companionBubbleText(state, settings.position === 'focus-area');
+  const bubble = companionBubbleText(state);
   const expression =
     isResume && state === 'ready' ? (resumeFlash ? surprised : idle) : companionExpression(state, settings.personality);
   const face = Math.round(FACE_SIZE * settings.scale);
   document.body.dataset.surface = 'companion';
-  // The window never throttles (it must react while hidden), so a hidden companion stops
-  // its own animations instead of compositing frames nobody can see.
   document.body.dataset.motion = settings.visible ? settings.motion : 'off';
   return (
     <button

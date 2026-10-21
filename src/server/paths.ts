@@ -6,7 +6,6 @@ export interface WebPaths {
   models: string;
   downloads: string;
   browserTts: string;
-  history: string;
   settings: string;
   assets: string;
   webRoot: string;
@@ -29,7 +28,6 @@ export function createPaths(data: string, assets: string, webRoot: string): WebP
     models: path.join(root, 'models'),
     downloads: path.join(root, 'downloads'),
     browserTts: path.join(root, 'browser-tts'),
-    history: path.join(root, 'history.json'),
     settings: path.join(root, 'settings.json'),
     assets: path.resolve(assets),
     webRoot: path.resolve(webRoot),

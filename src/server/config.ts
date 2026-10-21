@@ -1,12 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  MODEL_CATALOG,
-  sttModelIdSchema,
-  ttsModelIdSchema,
-  type ModelId,
-} from '@shared/domain/models';
+import { MODEL_CATALOG, ttsModelIdSchema, type ModelId } from '@shared/domain/models';
 import { createPaths, type WebPaths } from './paths';
 import { parseThreads } from './threads';
 
@@ -17,7 +12,6 @@ export interface WebConfig {
   port: number;
   password: string;
   paths: WebPaths;
-  sttModelId: ModelId;
   ttsModelId: ModelId;
   threads: number;
   downloadModels: boolean;
@@ -29,10 +23,10 @@ function env(name: string, fallback: string): string {
   return value && value.trim() ? value.trim() : fallback;
 }
 
-function modelId(raw: string, kind: 'stt' | 'tts'): ModelId {
-  const parsed = kind === 'stt' ? sttModelIdSchema.safeParse(raw) : ttsModelIdSchema.safeParse(raw);
-  if (!parsed.success || MODEL_CATALOG[parsed.data].kind !== kind) {
-    throw new Error(`INAUDIO_${kind.toUpperCase()}_MODEL is not a supported ${kind} model`);
+function ttsModel(raw: string): ModelId {
+  const parsed = ttsModelIdSchema.safeParse(raw);
+  if (!parsed.success || MODEL_CATALOG[parsed.data].kind !== 'tts') {
+    throw new Error('INAUDIO_TTS_MODEL is not a supported text-to-speech model');
   }
   return parsed.data;
 }
@@ -58,8 +52,7 @@ export function loadConfig(): WebConfig {
       env('INAUDIO_ASSETS', path.join(root, 'assets')),
       env('INAUDIO_WEB_ROOT', path.join(root, 'out/web')),
     ),
-    sttModelId: modelId(env('INAUDIO_STT_MODEL', 'parakeet-tdt-0.6b-v2-int8'), 'stt'),
-    ttsModelId: modelId(env('INAUDIO_TTS_MODEL', 'kokoro-en-v0_19'), 'tts'),
+    ttsModelId: ttsModel(env('INAUDIO_TTS_MODEL', 'kokoro-en-v0_19')),
     threads,
     downloadModels: env('INAUDIO_DOWNLOAD_MODELS', '1') !== '0',
     fakeSpeech: env('INAUDIO_FAKE_SPEECH', '') === '1',

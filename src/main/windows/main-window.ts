@@ -36,7 +36,7 @@ export function createMainWindow({ show = true }: { show?: boolean } = {}): Brow
       allowRunningInsecureContent: false,
       webviewTag: false,
       spellcheck: false,
-      // Dictation keeps capturing while the window is hidden in the tray.
+      // Read Aloud keeps playing while the window is hidden in the tray.
       backgroundThrottling: false,
       // Keep diagnostics available in packaged builds. The application menu is
       // removed on Windows/Linux, so the explicit shortcut below is required.
