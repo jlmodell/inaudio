@@ -5,6 +5,7 @@ import path from 'node:path';
 import { historyQuerySchema, historyUpdateSchema } from '@shared/domain/history';
 import { KOKORO_VOICES, voiceIdSchema } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
+import { MAX_READ_SPEED, MIN_READ_SPEED } from '@shared/web/read-aloud-engine';
 import { buildContentSecurityPolicy } from '@shared/security/csp';
 import { AuthGate, readCookie, SESSION_COOKIE } from './auth';
 import type { WebConfig } from './config';
@@ -153,7 +154,9 @@ async function route(
     const voice = voiceIdSchema.safeParse(body.voiceId ?? speech.settings.get().voiceId);
     if (!voice.success) return json(res, 400, { error: 'Unknown voice' });
     const speed = typeof body.speed === 'number' ? body.speed : speech.settings.get().speed;
-    if (speed < 0.5 || speed > 2) return json(res, 400, { error: 'Speed must be between 0.5 and 2' });
+    if (speed < MIN_READ_SPEED || speed > MAX_READ_SPEED) {
+      return json(res, 400, { error: `Speed must be between ${MIN_READ_SPEED} and ${MAX_READ_SPEED}` });
+    }
     if (url.pathname === '/api/speak/stream') {
       return streamSpeak(res, speech, clipped, voice.data, speed);
     }
@@ -209,7 +212,14 @@ async function streamSpeak(
       const wav = encodeWav(chunk.samples, chunk.sampleRate);
       flushLine(
         res,
-        JSON.stringify({ index: chunk.index, count: chunk.count, sampleRate: chunk.sampleRate, wav: wav.toString('base64') }),
+        JSON.stringify({
+          index: chunk.index,
+          count: chunk.count,
+          sampleRate: chunk.sampleRate,
+          wav: wav.toString('base64'),
+          text: chunk.text,
+          generateMs: chunk.generateMs,
+        }),
       );
       if (firstAudio) {
         log.info(`First audio flushed at ${Date.now() - started}ms (${chunk.text.length} chars)`);

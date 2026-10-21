@@ -300,7 +300,15 @@ export class SpeechService {
     text: string,
     voiceId: string,
     speed: number,
-  ): AsyncGenerator<{ index: number; count: number; text: string; samples: Float32Array; sampleRate: number; inferenceMs: number }> {
+  ): AsyncGenerator<{
+    index: number;
+    count: number;
+    text: string;
+    samples: Float32Array;
+    sampleRate: number;
+    inferenceMs: number;
+    generateMs: number;
+  }> {
     yield* this.speakPrepared(this.planSpeak(text), voiceId, speed);
   }
 
@@ -308,7 +316,15 @@ export class SpeechService {
     segments: TextSegment[],
     voiceId: string,
     speed: number,
-  ): AsyncGenerator<{ index: number; count: number; text: string; samples: Float32Array; sampleRate: number; inferenceMs: number }> {
+  ): AsyncGenerator<{
+    index: number;
+    count: number;
+    text: string;
+    samples: Float32Array;
+    sampleRate: number;
+    inferenceMs: number;
+    generateMs: number;
+  }> {
     if (!segments.length) return;
     const ensureStarted = Date.now();
     await this.ensureTts();
@@ -330,6 +346,7 @@ export class SpeechService {
         samples: spoken.samples,
         sampleRate: spoken.sampleRate,
         inferenceMs: spoken.inferenceMs,
+        generateMs: ms,
       };
     }
   }

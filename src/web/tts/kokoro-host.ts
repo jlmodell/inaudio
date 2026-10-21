@@ -1,47 +1,59 @@
+import { kokoroRuntime, wasmThreadCount, type ReadAloudRuntime } from '@shared/web/read-aloud-engine';
 import { preferredKokoroDevice } from './detect';
 import type { KokoroDevice, KokoroWorkerIn, KokoroWorkerOut } from './protocol';
 
 type ProgressHook = (progress: { file: string; loaded: number; total: number }) => void;
 
+export type KokoroLoadInfo = { runtime: ReadAloudRuntime; threads: number; isolated: boolean };
+
 /**
- * One Web Worker holds the Kokoro session. The next sentence is generated
- * while the current one plays.
+ * One Web Worker holds the Kokoro session. Speaks are queued in the worker so
+ * the host can keep several sentences in flight.
  */
 export class KokoroHost {
   private worker: Worker | null = null;
-  private ready: Promise<void> | null = null;
+  private ready: Promise<KokoroLoadInfo> | null = null;
+  private info: KokoroLoadInfo | null = null;
   private nextId = 1;
   private readonly pending = new Map<
     number,
-    { resolve: (audio: { samples: Float32Array; sampleRate: number }) => void; reject: (error: Error) => void }
+    { resolve: (audio: { samples: Float32Array; sampleRate: number; generateMs: number }) => void; reject: (error: Error) => void }
   >();
   private loadReject: ((error: Error) => void) | null = null;
   private onProgress: ProgressHook | null = null;
 
-  async load(onProgress?: ProgressHook): Promise<void> {
+  async load(onProgress?: ProgressHook): Promise<KokoroLoadInfo> {
     this.onProgress = onProgress ?? null;
     if (this.ready) return this.ready;
     this.ready = this.tryLoad();
     try {
-      await this.ready;
+      return await this.ready;
     } catch (error) {
       this.ready = null;
       throw error;
     }
   }
 
-  private async tryLoad(): Promise<void> {
+  loaded(): KokoroLoadInfo | null {
+    return this.info;
+  }
+
+  private async tryLoad(): Promise<KokoroLoadInfo> {
     const device = preferredKokoroDevice();
     try {
-      await this.open(device);
+      return await this.open(device);
     } catch (error) {
       if (device !== 'webgpu') throw error;
       this.disposeWorkerOnly();
-      await this.open('wasm');
+      return this.open('wasm');
     }
   }
 
-  async speak(text: string, voice: string, speed: number): Promise<{ samples: Float32Array; sampleRate: number }> {
+  async speak(
+    text: string,
+    voice: string,
+    speed: number,
+  ): Promise<{ samples: Float32Array; sampleRate: number; generateMs: number }> {
     await this.load();
     const worker = this.worker;
     if (!worker) throw new Error('The on-device voice is not loaded.');
@@ -58,6 +70,7 @@ export class KokoroHost {
     this.loadReject?.(new Error('Stopped'));
     this.loadReject = null;
     this.ready = null;
+    this.info = null;
     const worker = this.worker;
     this.worker = null;
     try {
@@ -68,20 +81,21 @@ export class KokoroHost {
     worker?.terminate();
   }
 
-  private async open(device: KokoroDevice): Promise<void> {
+  private async open(device: KokoroDevice): Promise<KokoroLoadInfo> {
     this.disposeWorkerOnly();
+    const threads = wasmThreadCount(globalThis.crossOriginIsolated === true, navigator.hardwareConcurrency ?? 4);
     const worker = new Worker(new URL('./kokoro.worker.ts', import.meta.url), { type: 'module' });
     this.worker = worker;
-    await new Promise<void>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => settle(new Error('The on-device voice took too long to load.')), 180_000);
-      const settle = (error?: Error) => {
+      const settle = (error?: Error, info?: KokoroLoadInfo) => {
         window.clearTimeout(timer);
         worker.onmessage = (event: MessageEvent<KokoroWorkerOut>) => this.onMessage(event.data);
         worker.onerror = (event) => this.fail(new Error(event.message || 'The on-device voice stopped.'));
         worker.onmessageerror = () => this.fail(new Error('The on-device voice could not start.'));
         this.loadReject = null;
-        if (error) reject(error);
-        else resolve();
+        if (error || !info) reject(error ?? new Error('The on-device voice could not start.'));
+        else resolve(info);
       };
       this.loadReject = (error) => settle(error);
       worker.onerror = (event) => settle(new Error(event.message || 'The on-device voice could not start.'));
@@ -92,14 +106,18 @@ export class KokoroHost {
           return;
         }
         if (event.data.type === 'ready') {
-          settle();
+          const info = {
+            runtime: kokoroRuntime(event.data.device, event.data.threads),
+            threads: event.data.threads,
+            isolated: event.data.isolated,
+          };
+          this.info = info;
+          settle(undefined, info);
           return;
         }
-        if (event.data.type === 'error') {
-          settle(new Error(event.data.message));
-        }
+        if (event.data.type === 'error') settle(new Error(event.data.message));
       };
-      this.send({ type: 'load', device });
+      this.send({ type: 'load', device, threads });
     });
   }
 
@@ -109,7 +127,11 @@ export class KokoroHost {
       return;
     }
     if (message.type === 'audio') {
-      this.pending.get(message.id)?.resolve({ samples: message.samples, sampleRate: message.sampleRate });
+      this.pending.get(message.id)?.resolve({
+        samples: message.samples,
+        sampleRate: message.sampleRate,
+        generateMs: message.generateMs,
+      });
       this.pending.delete(message.id);
       return;
     }
@@ -128,6 +150,7 @@ export class KokoroHost {
     this.loadReject?.(error);
     this.loadReject = null;
     this.ready = null;
+    this.info = null;
     for (const { reject } of this.pending.values()) reject(error);
     this.pending.clear();
     this.disposeWorkerOnly();

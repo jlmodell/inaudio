@@ -22,7 +22,8 @@ const resolve = {
 export default defineConfig({
   plugins: [react(), tailwindcss(), contentSecurityPolicy()],
   resolve,
-  worker: { format: 'es', resolve },
+  // Rolldown-vite's WorkerOptions type omits `resolve`; the bundled worker still needs the ORT condition.
+  worker: { format: 'es', resolve } as { format: 'es' },
   build: {
     outDir: 'out/web',
     emptyOutDir: true,

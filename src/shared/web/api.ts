@@ -33,6 +33,8 @@ export interface WebSettings {
   saveHistory: boolean;
   speechCleanup: boolean;
   readAloudEngine: ReadAloudEngine;
+  speedReading: boolean;
+  readAloudBuffer: number;
 }
 
 export type WebSettingsPatch = Partial<WebSettings>;
@@ -65,6 +67,8 @@ export interface WebSpeakChunk {
   sampleRate: number;
   wav?: string;
   type?: 'start';
+  text?: string;
+  generateMs?: number;
 }
 
 export interface WebErrorBody {

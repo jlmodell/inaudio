@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  BROWSER_FIRST_SEGMENT_CHARS,
+  BROWSER_MAX_SEGMENT_CHARS,
+  BROWSER_SEGMENT_LIMITS,
   FIRST_SEGMENT_CHARS,
   MAX_SEGMENT_CHARS,
   normalizeText,
@@ -71,4 +74,14 @@ test('keeps non-Latin text and emoji intact', () => {
 
 test('empty input gives no segments', () => {
   assert.deepEqual(segmentText(normalizeText('   ')), []);
+});
+
+test('browser limits keep on-device pieces shorter than the server default', () => {
+  const words = Array.from({ length: 80 }, (_, i) => `word${i}`).join(' ');
+  const numbered = segmentText(normalizeText(`${words}.`), 400);
+  assert.ok(numbered[0].text.length <= FIRST_SEGMENT_CHARS);
+  const explicit = segmentText(normalizeText(`${words}.`), BROWSER_SEGMENT_LIMITS);
+  assert.ok(explicit[0].text.length <= BROWSER_FIRST_SEGMENT_CHARS);
+  for (const segment of explicit) assert.ok(segment.text.length <= BROWSER_MAX_SEGMENT_CHARS);
+  assert.ok(explicit.length >= numbered.length);
 });

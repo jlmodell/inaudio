@@ -47,7 +47,9 @@ Pick one of these. Both keep traffic on machines you already trust.
 
 Install Tailscale on the host and on the Mac or Windows computer. Open `http://<hostname>.<tailnet>.ts.net:8080` — or, if you turn on Tailscale Serve / HTTPS, the `https://` URL it prints. That URL is enough for the microphone.
 
-Read-aloud on this device downloads the browser voice from your Inaudio on first use (progress is on the page) and then generates the next sentence while the current one plays. The server voice still streams sentence audio as it is synthesized; the server flushes each chunk and pads the first line so proxies (including Tailscale Serve) do not hold the whole story until the end. `docker compose logs` prints model load, warmup, per-sentence synth time, and time to first audio.
+Read-aloud on this device downloads the browser voice from your Inaudio on first use (progress is on the page). On-device and server voices wait for three sentences (change that in Settings) before playback starts, then keep generating so they stay that far ahead. The server flushes each chunk and pads the first line so proxies (including Tailscale Serve) do not hold the whole story until the end. `docker compose logs` prints model load, warmup, per-sentence synth time, and time to first audio.
+
+The on-device voice needs `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so WASM can use more than one thread. Inaudio sends those headers. Tailscale Serve often drops them; Read aloud then shows “not isolated” / “WASM, 1 thread”. Use Caddy in front and keep the headers, raise the sentence buffer, or switch to this browser’s built-in voice.
 
 ### Caddy in front (LAN HTTPS)
 
@@ -58,6 +60,9 @@ inaudio.home.arpa {
   reverse_proxy 127.0.0.1:8080 {
     flush_interval -1
   }
+  header Cross-Origin-Opener-Policy same-origin
+  header Cross-Origin-Embedder-Policy require-corp
+  header Cross-Origin-Resource-Policy same-origin
   # Caddy will need a certificate this browser trusts.
   # On a home LAN, `tls internal` plus installing Caddy's root CA on each device works.
 }

@@ -1,17 +1,25 @@
 import fs from 'node:fs';
 import { z } from 'zod';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema, type ModelId } from '@shared/domain/models';
-import { DEFAULT_READ_ALOUD_ENGINE, READ_ALOUD_ENGINES } from '@shared/web/read-aloud-engine';
+import { clampAhead, DEFAULT_READ_ALOUD_BUFFER } from '@shared/read-aloud/ahead';
+import {
+  DEFAULT_READ_ALOUD_ENGINE,
+  MAX_READ_SPEED,
+  MIN_READ_SPEED,
+  READ_ALOUD_ENGINES,
+} from '@shared/web/read-aloud-engine';
 import type { WebSettings, WebSettingsPatch } from '@shared/web/api';
 
 const schema = z.object({
   sttModelId: sttModelIdSchema,
   ttsModelId: ttsModelIdSchema,
   voiceId: voiceIdSchema,
-  speed: z.number().min(0.5).max(2),
+  speed: z.number().min(MIN_READ_SPEED).max(MAX_READ_SPEED),
   saveHistory: z.boolean(),
   speechCleanup: z.boolean(),
   readAloudEngine: z.enum(READ_ALOUD_ENGINES),
+  speedReading: z.boolean(),
+  readAloudBuffer: z.number().transform((value) => clampAhead(value)),
 });
 
 const patchSchema = schema.partial().strict();
@@ -25,6 +33,8 @@ export function defaultSettings(sttModelId: ModelId, ttsModelId: ModelId): WebSe
     saveHistory: true,
     speechCleanup: false,
     readAloudEngine: DEFAULT_READ_ALOUD_ENGINE,
+    speedReading: false,
+    readAloudBuffer: DEFAULT_READ_ALOUD_BUFFER,
   };
 }
 

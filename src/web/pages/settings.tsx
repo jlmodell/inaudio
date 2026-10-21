@@ -1,10 +1,13 @@
 import { MODEL_CATALOG, MODEL_IDS } from '@shared/domain/models';
+import { MAX_READ_ALOUD_BUFFER, MIN_READ_ALOUD_BUFFER } from '@shared/read-aloud/ahead';
 import type { ReadAloudEngine } from '@shared/web/read-aloud-engine';
 import { PageHeader, Row, Section } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
+import { Slider } from '@renderer/components/ui/slider';
 import { Switch } from '@renderer/components/ui/switch';
 import { api } from '../api';
 import { keys, queryClient, useSettings, useStatus, useUpdateSettings } from '../queries';
+import { ReadAloudDiagLine } from '../tts/diag-line';
 import { writeDeviceFallback } from '../tts/device-fallback';
 
 const STT_OPTIONS = MODEL_IDS.filter((id) => MODEL_CATALOG[id].kind === 'stt').map((id) => ({
@@ -69,6 +72,25 @@ export function SettingsPage() {
             ]}
           />
         </Row>
+        <Row
+          label="Sentence buffer"
+          description="On-device and server voices wait for this many sentences before they start, then keep generating to stay that far ahead."
+        >
+          <label className="grid w-40 gap-1">
+            <span className="text-right text-xs text-muted">{settings.readAloudBuffer}</span>
+            <Slider
+              aria-label="Sentence buffer"
+              min={MIN_READ_ALOUD_BUFFER}
+              max={MAX_READ_ALOUD_BUFFER}
+              step={1}
+              value={[settings.readAloudBuffer]}
+              onValueChange={([readAloudBuffer]) =>
+                readAloudBuffer !== undefined && update.mutate({ readAloudBuffer })
+              }
+            />
+          </label>
+        </Row>
+        <Row label="Voice status" description={<ReadAloudDiagLine className="text-sm text-muted" />} />
       </Section>
       <Section title="This copy">
         <Row
