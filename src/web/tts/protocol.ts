@@ -17,4 +17,14 @@ export type KokoroWorkerOut =
       phonemes: string;
       voice: string;
     }
-  | { type: 'error'; id?: number; message: string; name?: string; stack?: string };
+  | {
+      type: 'error';
+      id?: number;
+      message: string;
+      name?: string;
+      stack?: string;
+      filename?: string;
+      lineno?: number;
+      colno?: number;
+      url?: string;
+    };

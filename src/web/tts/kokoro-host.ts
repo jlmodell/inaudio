@@ -1,5 +1,5 @@
 import { kokoroRuntime, wasmThreadCount, type ReadAloudRuntime } from '@shared/web/read-aloud-engine';
-import { isWebGpuFailure, logVoiceError } from '@shared/web/voice-error';
+import { isWebGpuFailure, logVoiceError, workerFailureText } from '@shared/web/voice-error';
 import { preferredKokoroDevice } from './detect';
 import type { KokoroDevice, KokoroWorkerIn, KokoroWorkerOut } from './protocol';
 
@@ -123,14 +123,14 @@ export class KokoroHost {
         window.clearTimeout(timer);
         worker.onmessage = (event: MessageEvent<KokoroWorkerOut>) => this.onMessage(event.data);
         worker.onerror = (event) => this.fail(workerError(event));
-        worker.onmessageerror = () => this.fail(new Error('The on-device voice could not start.'));
+        worker.onmessageerror = () => this.fail(new Error('The on-device voice could not start (worker messageerror).'));
         this.loadReject = null;
         if (error || !info) reject(error ?? new Error('The on-device voice could not start.'));
         else resolve(info);
       };
       this.loadReject = (error) => settle(error);
       worker.onerror = (event) => settle(workerError(event));
-      worker.onmessageerror = () => settle(new Error('The on-device voice could not start.'));
+      worker.onmessageerror = () => settle(new Error('The on-device voice could not start (worker messageerror).'));
       worker.onmessage = (event: MessageEvent<KokoroWorkerOut>) => {
         if (event.data.type === 'progress') {
           this.onProgress?.(event.data);
@@ -205,18 +205,39 @@ function matchesDevice(current: KokoroDevice, wanted?: KokoroDevice): boolean {
   return !wanted || current === wanted;
 }
 
-function fromWorkerError(message: { message: string; name?: string; stack?: string }): Error {
-  const error = new Error(message.message);
+function fromWorkerError(message: {
+  message: string;
+  name?: string;
+  stack?: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
+  url?: string;
+}): Error {
+  const error = new Error(
+    workerFailureText({
+      message: message.message,
+      filename: message.filename,
+      lineno: message.lineno,
+      colno: message.colno,
+      url: message.url,
+    }),
+  );
   if (message.name) error.name = message.name;
   if (message.stack) error.stack = message.stack;
   return error;
 }
 
 function workerError(event: ErrorEvent): Error {
-  const parts = [event.message, event.filename && `${event.filename}:${event.lineno}:${event.colno}`]
-    .filter(Boolean)
-    .join(' ');
-  const error = new Error(parts || 'The on-device voice could not start.');
+  const error = new Error(
+    workerFailureText({
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      error: event.error,
+    }),
+  );
   if (event.error instanceof Error && event.error.stack) error.stack = event.error.stack;
   return error;
 }

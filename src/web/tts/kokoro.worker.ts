@@ -16,13 +16,24 @@ import {
   phonemizeForKokoro,
   textNeedsEnglishIpa,
 } from '@shared/web/kokoro-phonemes';
-import { rewriteModelUrl } from '@shared/web/model-url';
+import { requestUrl, rewriteFetchInput } from '@shared/web/model-url';
 import { ORT_URL_PREFIX } from '@shared/web/ort-runtime';
-import { voiceErrorText } from '@shared/web/voice-error';
+import { voiceErrorText, workerFailureText } from '@shared/web/voice-error';
 import type { KokoroWorkerIn, KokoroWorkerOut } from './protocol';
 
 const CACHE = 'inaudio-browser-tts';
 const WASM_PATHS = `${ORT_URL_PREFIX}/`;
+
+let lastFetchUrl = '';
+
+self.addEventListener('error', (event) => {
+  postCrash(event);
+  event.preventDefault();
+});
+self.addEventListener('unhandledrejection', (event) => {
+  postCrash(event.reason);
+  event.preventDefault();
+});
 
 hfEnv.allowRemoteModels = false;
 hfEnv.allowLocalModels = true;
@@ -36,7 +47,14 @@ if (hfEnv.backends.onnx.wasm) {
 }
 
 const nativeFetch = self.fetch.bind(self);
-self.fetch = (input: RequestInfo | URL, init?: RequestInit) => cachedFetch(rewrite(input), init);
+self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  lastFetchUrl = requestUrl(input);
+  try {
+    return cachedFetch(rewriteFetchInput(input, self.location.origin), init);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+};
 
 let tts: KokoroTTS | null = null;
 let chain = Promise.resolve();
@@ -135,8 +153,9 @@ async function speakEnglish(
 async function loadEnglishVoice(name: string): Promise<Float32Array> {
   const hit = voicePacks.get(name);
   if (hit) return hit;
-  const response = await fetch(browserTtsVoiceUrl(name));
-  if (!response.ok) throw fetchFailed(browserTtsVoiceUrl(name), response.status);
+  const url = new URL(browserTtsVoiceUrl(name), self.location.origin).href;
+  const response = await fetch(url);
+  if (!response.ok) throw fetchFailed(url, response.status);
   const buffer = await response.arrayBuffer();
   if (buffer.byteLength !== BROWSER_TTS_VOICE_BYTES) {
     throw new Error(`The on-device voice "${name}" is ${buffer.byteLength} bytes, not an English style pack.`);
@@ -160,16 +179,9 @@ function floatSamples(audio: { audio?: Float32Array; data?: Float32Array | numbe
   throw new Error('The on-device voice returned no audio.');
 }
 
-function rewrite(input: RequestInfo | URL): RequestInfo | URL {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  const local = rewriteModelUrl(url, self.location.origin);
-  if (local === url) return input;
-  if (typeof input === 'string' || input instanceof URL) return local;
-  return new Request(local, input);
-}
-
 async function cachedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const url = requestUrl(input);
+  lastFetchUrl = url;
   if (new URL(url, self.location.origin).pathname.startsWith(BROWSER_TTS_URL_PREFIX)) {
     try {
       const cache = await caches.open(CACHE);
@@ -193,9 +205,40 @@ function fetchFailed(url: string, status: number): Error {
   return new Error(`Could not fetch ${url} (${status})`);
 }
 
-function postError(error: unknown, id?: number): void {
+function postCrash(reason: unknown): void {
+  if (reason && typeof reason === 'object' && 'filename' in reason && 'message' in reason) {
+    const event = reason as ErrorEvent;
+    const error = event.error instanceof Error ? event.error : new Error(event.message || 'The on-device voice failed.');
+    postError(error, undefined, { filename: event.filename, lineno: event.lineno, colno: event.colno });
+    return;
+  }
+  postError(reason);
+}
+
+function postError(
+  error: unknown,
+  id?: number,
+  extra?: { filename?: string; lineno?: number; colno?: number },
+): void {
   const err = error instanceof Error ? error : new Error(String(error));
-  post({ type: 'error', id, message: err.message || 'The on-device voice failed.', name: err.name, stack: err.stack });
+  post({
+    type: 'error',
+    id,
+    message: workerFailureText({
+      message: err.message || 'The on-device voice failed.',
+      filename: extra?.filename,
+      lineno: extra?.lineno,
+      colno: extra?.colno,
+      url: lastFetchUrl,
+      error: err,
+    }),
+    name: err.name,
+    stack: err.stack,
+    filename: extra?.filename,
+    lineno: extra?.lineno,
+    colno: extra?.colno,
+    url: lastFetchUrl || undefined,
+  });
 }
 
 function post(message: KokoroWorkerOut, transfer: Transferable[] = []): void {

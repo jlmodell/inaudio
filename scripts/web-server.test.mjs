@@ -316,6 +316,30 @@ if (!skipWithoutBuild()) {
         assert.equal(body.toString('ascii', 0, 4), '\0asm', name);
       }
     }
+
+    const workerName = fs.readdirSync(path.join(root, 'out/web/assets')).find((name) => name.startsWith('kokoro.worker-'));
+    assert.ok(workerName);
+    const worker = await fetch(`${base}/assets/${workerName}`);
+    assert.equal(worker.status, 200);
+    assert.match(worker.headers.get('content-type') ?? '', /javascript/);
+    assert.equal(worker.headers.get('cross-origin-resource-policy'), 'same-origin');
+    assert.equal(worker.headers.get('cross-origin-embedder-policy'), 'require-corp');
+
+    const voicePath = 'onnx-community/Kokoro-82M-v1.0-ONNX/voices/af_heart.bin';
+    const voiceFile = path.join(server.data, 'browser-tts', ...voicePath.split('/'));
+    fs.mkdirSync(path.dirname(voiceFile), { recursive: true });
+    fs.writeFileSync(voiceFile, Buffer.alloc(522_240));
+    const voice = await fetch(`${base}/browser-tts/${voicePath}`, { headers });
+    assert.equal(voice.status, 200);
+    assert.equal(voice.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(voice.headers.get('cross-origin-resource-policy'), 'same-origin');
+    assert.equal(voice.headers.get('cross-origin-embedder-policy'), 'require-corp');
+    assert.equal((await voice.arrayBuffer()).byteLength, 522_240);
+
+    const chinese = await fetch(`${base}/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/voices/zf_xiaoxiao.bin`, {
+      headers,
+    });
+    assert.equal(chinese.status, 404);
   });
 }
 

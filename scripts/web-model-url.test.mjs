@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { rewriteModelUrl } from '../src/shared/web/model-url.ts';
+import { fetchRewritten, rewriteFetchInput, rewriteModelUrl } from '../src/shared/web/model-url.ts';
 
 const origin = 'https://inaudio.example';
 
@@ -29,4 +29,24 @@ test('rewriteModelUrl keeps same-origin fetches and maps Hugging Face onto the h
     () => rewriteModelUrl('https://evil.example/model.onnx', origin),
     /leave this Inaudio \(https:\/\/evil\.example\/model\.onnx\)/,
   );
+  assert.throws(
+    () => rewriteFetchInput('https://evil.example/model.onnx', origin),
+    /leave this Inaudio/,
+  );
+});
+
+test('fetchRewritten rejects unexpected hosts instead of throwing synchronously', async () => {
+  let called = false;
+  const pending = fetchRewritten(
+    () => {
+      called = true;
+      return Promise.resolve(new Response());
+    },
+    'https://evil.example/model.onnx',
+    undefined,
+    origin,
+  );
+  assert.equal(typeof pending.then, 'function');
+  await assert.rejects(pending, /leave this Inaudio \(https:\/\/evil\.example\/model\.onnx\)/);
+  assert.equal(called, false);
 });
