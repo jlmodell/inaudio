@@ -59,7 +59,8 @@ export interface WebSpeakChunk {
   index: number;
   count: number;
   sampleRate: number;
-  wav: string;
+  wav?: string;
+  type?: 'start';
 }
 
 export interface WebErrorBody {

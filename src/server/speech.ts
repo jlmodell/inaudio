@@ -3,7 +3,7 @@ import { MODEL_CATALOG, voiceSid, type ModelId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
 import { MAX_TRANSCRIPT_CHARS, type Transcript } from '@shared/domain/history';
 import { joinPassage, type PassageCut } from '@shared/live/join';
-import { normalizeText, segmentText } from '@shared/read-aloud/segment';
+import { normalizeText, segmentText, type TextSegment } from '@shared/read-aloud/segment';
 import { applyReplacements } from '@shared/text/replacements';
 import type { SttCleanup, SttResult, TtsResult } from '@shared/worker/protocol';
 import type { WebLiveResult, WebModelProgress, WebStatus } from '@shared/web/api';
@@ -157,12 +157,14 @@ export class SpeechService {
     log.info(`Looking for models in ${this.config.paths.models}`);
     await this.models.discover(sttId);
     await this.models.discover(ttsId);
-    void this.startModel(sttId, 'stt').catch((error) => {
-      this.message = error instanceof Error ? error.message : String(error);
-    });
-    void this.startModel(ttsId, 'tts').catch((error) => {
-      this.message ??= error instanceof Error ? error.message : String(error);
-    });
+    await Promise.all([
+      this.startModel(sttId, 'stt').catch((error) => {
+        this.message = error instanceof Error ? error.message : String(error);
+      }),
+      this.startModel(ttsId, 'tts').catch((error) => {
+        this.message ??= error instanceof Error ? error.message : String(error);
+      }),
+    ]);
   }
 
   private startModel(id: ModelId, kind: 'stt' | 'tts'): Promise<void> {
@@ -280,19 +282,45 @@ export class SpeechService {
     return this.backend.speak(text, voiceSid(voiceId), speed);
   }
 
+  planSpeak(text: string): TextSegment[] {
+    return segmentText(normalizeText(text.slice(0, MAX_READ_ALOUD_CHARS)));
+  }
+
   async *speakSegments(
     text: string,
     voiceId: string,
     speed: number,
-  ): AsyncGenerator<{ index: number; count: number; text: string; samples: Float32Array; sampleRate: number }> {
-    const segments = segmentText(normalizeText(text.slice(0, MAX_READ_ALOUD_CHARS)));
+  ): AsyncGenerator<{ index: number; count: number; text: string; samples: Float32Array; sampleRate: number; inferenceMs: number }> {
+    yield* this.speakPrepared(this.planSpeak(text), voiceId, speed);
+  }
+
+  async *speakPrepared(
+    segments: TextSegment[],
+    voiceId: string,
+    speed: number,
+  ): AsyncGenerator<{ index: number; count: number; text: string; samples: Float32Array; sampleRate: number; inferenceMs: number }> {
     if (!segments.length) return;
+    const ensureStarted = Date.now();
     await this.ensureTts();
+    const ensureMs = Date.now() - ensureStarted;
+    if (ensureMs > 20) log.info(`TTS was not ready; waited ${ensureMs}ms to load`);
     const sid = voiceSid(voiceId);
     log.info(`Reading aloud: ${segments.length} segment${segments.length === 1 ? '' : 's'}`);
     for (const [index, segment] of segments.entries()) {
+      const started = Date.now();
       const spoken = await this.backend.speak(segment.text, sid, speed);
-      yield { index, count: segments.length, text: segment.text, samples: spoken.samples, sampleRate: spoken.sampleRate };
+      const ms = Date.now() - started;
+      log.info(
+        `Segment ${index + 1}/${segments.length}: ${segment.text.length} chars in ${ms}ms (engine ${spoken.inferenceMs}ms)`,
+      );
+      yield {
+        index,
+        count: segments.length,
+        text: segment.text,
+        samples: spoken.samples,
+        sampleRate: spoken.sampleRate,
+        inferenceMs: spoken.inferenceMs,
+      };
     }
   }
 
@@ -337,10 +365,16 @@ export class SpeechService {
       await this.models.ensure(id);
       const dir = this.models.directory(id);
       log.info(`Loading ${name} from ${dir}`);
+      const loadStarted = Date.now();
       if (kind === 'stt') await this.backend.loadStt(id, dir, this.config.threads);
       else await this.backend.loadTts(id, dir, this.config.threads);
+      log.info(`Loaded ${name} in ${Date.now() - loadStarted}ms`);
+      if (kind === 'tts') {
+        const warmStarted = Date.now();
+        await this.backend.speak('Hi.', voiceSid(this.settings.get().voiceId), 1);
+        log.info(`Warmed ${name} in ${Date.now() - warmStarted}ms`);
+      }
       delete this.loadError[kind];
-      log.info(`Loaded ${name}`);
     } catch (error) {
       this.loadError[kind] = error instanceof Error ? error.message : String(error);
       log.error(`Failed to load ${name}`, error);

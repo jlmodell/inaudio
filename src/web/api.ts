@@ -125,7 +125,7 @@ export const api = {
   async *speakStream(
     input: { text: string; voiceId?: VoiceId; speed?: number },
     signal?: AbortSignal,
-  ): AsyncGenerator<WebSpeakChunk> {
+  ): AsyncGenerator<WebSpeakChunk & { wav: string }> {
     const response = await fetch('/api/speak/stream', {
       method: 'POST',
       credentials: 'same-origin',
@@ -144,7 +144,9 @@ export const api = {
       }
     }
     if (!response.body) throw new Error('Could not read that aloud');
-    yield* readNdjson<WebSpeakChunk>(response.body);
+    for await (const chunk of readNdjson<WebSpeakChunk>(response.body)) {
+      if (chunk.wav) yield { ...chunk, wav: chunk.wav };
+    }
   },
 };
 
