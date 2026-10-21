@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { MODEL_CATALOG, voiceSid, type ModelId } from '@shared/domain/models';
+import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
 import { MAX_TRANSCRIPT_CHARS, type Transcript } from '@shared/domain/history';
 import { joinPassage, type PassageCut } from '@shared/live/join';
+import { normalizeText, segmentText } from '@shared/read-aloud/segment';
 import { applyReplacements } from '@shared/text/replacements';
 import type { SttCleanup, SttResult, TtsResult } from '@shared/worker/protocol';
 import type { WebLiveResult, WebModelProgress, WebStatus } from '@shared/web/api';
@@ -276,6 +278,22 @@ export class SpeechService {
   async speak(text: string, voiceId: string, speed: number): Promise<TtsResult> {
     await this.ensureTts();
     return this.backend.speak(text, voiceSid(voiceId), speed);
+  }
+
+  async *speakSegments(
+    text: string,
+    voiceId: string,
+    speed: number,
+  ): AsyncGenerator<{ index: number; count: number; text: string; samples: Float32Array; sampleRate: number }> {
+    const segments = segmentText(normalizeText(text.slice(0, MAX_READ_ALOUD_CHARS)));
+    if (!segments.length) return;
+    await this.ensureTts();
+    const sid = voiceSid(voiceId);
+    log.info(`Reading aloud: ${segments.length} segment${segments.length === 1 ? '' : 's'}`);
+    for (const [index, segment] of segments.entries()) {
+      const spoken = await this.backend.speak(segment.text, sid, speed);
+      yield { index, count: segments.length, text: segment.text, samples: spoken.samples, sampleRate: spoken.sampleRate };
+    }
   }
 
   async close(): Promise<void> {

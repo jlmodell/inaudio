@@ -191,6 +191,41 @@ if (!skipWithoutBuild()) {
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.match(server.logs.join(''), /POST \/api\/speak failed with 500/);
   });
+
+  test('web server streams read-aloud sentences in order', { timeout: 15_000 }, async (t) => {
+    const server = await startServer();
+    t.after(() => server.close());
+    const base = `http://127.0.0.1:${server.port}`;
+    const headers = await signIn(base);
+    await waitReady(base, headers);
+
+    const text =
+      'The first sentence is comfortably long enough to stand on its own here. The second one is long enough too, as it happens.';
+    const response = await fetch(`${base}/api/speak/stream`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /ndjson/);
+    const body = await response.text();
+    const chunks = body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.ok(chunks.length >= 2);
+    assert.equal(chunks[0].index, 0);
+    assert.equal(chunks[0].count, chunks.length);
+    for (const [index, chunk] of chunks.entries()) {
+      assert.equal(chunk.index, index);
+      assert.equal(chunk.count, chunks.length);
+      assert.equal(typeof chunk.sampleRate, 'number');
+      const wav = Buffer.from(chunk.wav, 'base64');
+      assert.ok(wav.byteLength > 44);
+      assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+    }
+    assert.match(server.logs.join(''), /Reading aloud: \d+ segments?/);
+  });
 }
 
 async function signIn(base) {

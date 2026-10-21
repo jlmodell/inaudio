@@ -66,7 +66,7 @@ Keep port 8080 off the public internet unless you also set a password and unders
 | `INAUDIO_STT_MODEL` | `parakeet-tdt-0.6b-v2-int8` | English speech-to-text |
 | `INAUDIO_TTS_MODEL` | `kokoro-en-v0_19` | English read-aloud |
 | `INAUDIO_DOWNLOAD_MODELS` | `1` | Set `0` to skip the automatic download |
-| `INAUDIO_THREADS` | `4` | CPU threads for sherpa-onnx |
+| `INAUDIO_THREADS` | host CPU count (max 16) | CPU threads for sherpa-onnx |
 | `INAUDIO_DATA` | `/data` in Docker | Models, history, settings |
 
 Other catalog models (`parakeet-tdt-0.6b-v3-int8`, `nemotron-speech-streaming-en-0.6b-560ms-int8`) work if you set `INAUDIO_STT_MODEL` and have the disk for them.

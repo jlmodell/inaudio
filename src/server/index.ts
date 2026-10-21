@@ -10,6 +10,7 @@ const server = createServer(config, speech);
 server.listen(config.port, config.host, () => {
   const local = config.host === '0.0.0.0' ? 'localhost' : config.host;
   console.log(`Inaudio web is on http://${local}:${config.port}`);
+  console.log(`Using ${config.threads} CPU thread${config.threads === 1 ? '' : 's'}.`);
   if (config.password) console.log('Password protection is on.');
   else console.log('No password is set. Anyone who can reach this address can use it.');
 });

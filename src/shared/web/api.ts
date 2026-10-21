@@ -54,6 +54,14 @@ export interface WebSpeakRequest {
   speed?: number;
 }
 
+/** One synthesized sentence (or short span) from `/api/speak/stream`. */
+export interface WebSpeakChunk {
+  index: number;
+  count: number;
+  sampleRate: number;
+  wav: string;
+}
+
 export interface WebErrorBody {
   error: string;
 }

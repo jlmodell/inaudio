@@ -8,6 +8,7 @@ import {
   type ModelId,
 } from '@shared/domain/models';
 import { createPaths, type WebPaths } from './paths';
+import { parseThreads } from './threads';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,7 +45,7 @@ function defaultRoot(): string {
 
 export function loadConfig(): WebConfig {
   const root = defaultRoot();
-  const threads = Number.parseInt(env('INAUDIO_THREADS', '4'), 10);
+  const threads = parseThreads(process.env.INAUDIO_THREADS);
   const port = Number.parseInt(env('INAUDIO_PORT', '8080'), 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('INAUDIO_PORT is not a valid port');
   if (!Number.isInteger(threads) || threads < 1 || threads > 16) throw new Error('INAUDIO_THREADS must be 1-16');

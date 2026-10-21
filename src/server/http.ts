@@ -132,7 +132,7 @@ async function route(
   if (method === 'POST' && liveStop) {
     return json(res, 200, await speech.stopLive(liveStop[1] ?? ''));
   }
-  if (method === 'POST' && url.pathname === '/api/speak') {
+  if (method === 'POST' && (url.pathname === '/api/speak' || url.pathname === '/api/speak/stream')) {
     const body = await readJson(req);
     const text = typeof body.text === 'string' ? body.text.trim() : '';
     if (!text) return json(res, 400, { error: 'Paste some text to read aloud.' });
@@ -141,6 +141,9 @@ async function route(
     if (!voice.success) return json(res, 400, { error: 'Unknown voice' });
     const speed = typeof body.speed === 'number' ? body.speed : speech.settings.get().speed;
     if (speed < 0.5 || speed > 2) return json(res, 400, { error: 'Speed must be between 0.5 and 2' });
+    if (url.pathname === '/api/speak/stream') {
+      return streamSpeak(res, speech, clipped, voice.data, speed);
+    }
     const spoken = await speech.speak(clipped, voice.data, speed);
     const wav = encodeWav(spoken.samples, spoken.sampleRate);
     res.writeHead(200, {
@@ -156,6 +159,36 @@ async function route(
     return serveStatic(res, config.paths.webRoot, url.pathname);
   }
   json(res, 404, { error: 'Not found' });
+}
+
+async function streamSpeak(
+  res: http.ServerResponse,
+  speech: SpeechService,
+  text: string,
+  voiceId: string,
+  speed: number,
+): Promise<void> {
+  const chunks = speech.speakSegments(text, voiceId, speed);
+  const first = await chunks.next();
+  if (first.done) return json(res, 400, { error: 'Paste some text to read aloud.' });
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Accel-Buffering': 'no',
+  });
+  const write = (chunk: { index: number; count: number; samples: Float32Array; sampleRate: number }) => {
+    const wav = encodeWav(chunk.samples, chunk.sampleRate);
+    return res.write(`${JSON.stringify({ index: chunk.index, count: chunk.count, sampleRate: chunk.sampleRate, wav: wav.toString('base64') })}\n`);
+  };
+  try {
+    write(first.value);
+    for await (const chunk of chunks) {
+      if (!res.writable) break;
+      write(chunk);
+    }
+  } finally {
+    if (!res.writableEnded) res.end();
+  }
 }
 
 async function serveStatic(res: http.ServerResponse, root: string, pathname: string): Promise<void> {

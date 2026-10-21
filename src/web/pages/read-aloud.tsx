@@ -6,8 +6,8 @@ import { Button } from '@renderer/components/ui/button';
 import { Notice, PageHeader } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
-import { api } from '../api';
 import { useSettings, useUpdateSettings } from '../queries';
+import { SpeakQueue } from '../speak-queue';
 
 export function ReadAloudPage() {
   const { data: settings } = useSettings();
@@ -15,13 +15,11 @@ export function ReadAloudPage() {
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const objectUrl = useRef<string | null>(null);
+  const queue = useRef<SpeakQueue | null>(null);
 
   useEffect(
     () => () => {
-      audio.current?.pause();
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      queue.current?.stop();
     },
     [],
   );
@@ -33,38 +31,35 @@ export function ReadAloudPage() {
     if (!clipped) return;
     setError(null);
     setPhase('loading');
-    try {
-      const blob = await api.speak({ text: clipped, voiceId: settings.voiceId, speed: settings.speed });
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-      const url = URL.createObjectURL(blob);
-      objectUrl.current = url;
-      const player = audio.current ?? new Audio();
-      audio.current = player;
-      player.src = url;
-      player.onended = () => setPhase('idle');
-      await player.play();
-      setPhase('playing');
-    } catch (caught) {
-      setPhase('idle');
-      setError(caught instanceof Error ? caught.message : 'Could not read that aloud');
-    }
+    const player = queue.current ?? new SpeakQueue();
+    queue.current = player;
+    await player.start(
+      { text: clipped, voiceId: settings.voiceId, speed: settings.speed },
+      {
+        onPlaying: () => setPhase('playing'),
+        onEnded: () => setPhase('idle'),
+        onError: (caught) => {
+          setPhase('idle');
+          setError(caught.message);
+        },
+      },
+    );
   };
 
   const togglePause = () => {
-    const player = audio.current;
+    const player = queue.current;
     if (!player) return;
     if (phase === 'playing') {
       player.pause();
       setPhase('paused');
     } else if (phase === 'paused') {
-      void player.play();
+      player.resume();
       setPhase('playing');
     }
   };
 
   const stop = () => {
-    audio.current?.pause();
-    if (audio.current) audio.current.currentTime = 0;
+    queue.current?.stop();
     setPhase('idle');
   };
 
