@@ -1,15 +1,25 @@
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import fs from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { MODEL_CATALOG } from '../src/shared/domain/models.ts';
-import { ModelStore } from '../src/server/model-store.ts';
+import * as tar from 'tar';
+import bz2 from 'unbzip2-stream';
 
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)));
 const require = createRequire(import.meta.url);
 const electron = require('electron');
+
+const ARTIFACT = {
+  url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-en-v0_19.tar.bz2',
+  sha256: '912804855a04745fa77a30be545b3f9a5d15c4d66db00b88cbcd4921df605ac7',
+  expect: ['model.onnx', 'voices.bin', 'tokens.txt', 'espeak-ng-data/phontab'],
+};
 
 function packagedApp() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
@@ -25,9 +35,9 @@ function resourcesDir(appDir) {
 function findWorker(appDir) {
   const resources = resourcesDir(appDir);
   const asar = path.join(resources, 'app.asar');
-  if (fs.existsSync(asar)) return path.join(asar, '.vite', 'build', 'inference-worker.js');
+  if (existsSync(asar)) return path.join(asar, '.vite', 'build', 'inference-worker.js');
   const unpacked = path.join(resources, 'app', '.vite', 'build', 'inference-worker.js');
-  if (fs.existsSync(unpacked)) return unpacked;
+  if (existsSync(unpacked)) return unpacked;
   throw new Error(`Packaged inference worker not found under ${resources}`);
 }
 
@@ -35,25 +45,53 @@ function cacheRoot() {
   return process.env.INAUDIO_SMOKE_CACHE || path.join(os.homedir(), '.cache', 'inaudio-smoke-models');
 }
 
+function modelReady(dir) {
+  return ARTIFACT.expect.every((name) => existsSync(path.join(dir, name)));
+}
+
+async function downloadArchive(url, destination, expectedSha256) {
+  const response = await fetch(url);
+  if (!response.ok || !response.body) throw new Error(`download failed: ${response.status} ${url}`);
+  const hash = createHash('sha256');
+  const file = createWriteStream(destination);
+  let bytes = 0;
+  let lastBucket = -1;
+  for await (const chunk of response.body) {
+    hash.update(chunk);
+    bytes += chunk.length;
+    const bucket = Math.floor(bytes / (32 * 1024 * 1024));
+    if (bucket !== lastBucket) {
+      lastBucket = bucket;
+      process.stdout.write(`Downloading Kokoro: ${(bytes / 1_000_000).toFixed(0)} MB\n`);
+    }
+    if (!file.write(chunk)) await new Promise((resolve) => file.once('drain', resolve));
+  }
+  await new Promise((resolve, reject) => {
+    file.end(resolve);
+    file.on('error', reject);
+  });
+  const digest = hash.digest('hex');
+  if (digest !== expectedSha256) throw new Error(`Kokoro archive hash ${digest}, expected ${expectedSha256}`);
+}
+
+async function extractArchive(archive, destination) {
+  await pipeline(createReadStream(archive), bz2(), tar.x({ cwd: destination, strip: 1 }));
+}
+
 async function ensureModel() {
   const cache = cacheRoot();
-  const models = path.join(cache, 'models');
+  const dir = path.join(cache, 'models', 'kokoro-en-v0_19');
   const downloads = path.join(cache, 'downloads');
-  fs.mkdirSync(models, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(downloads, { recursive: true, mode: 0o700 });
-  const store = new ModelStore(models, downloads);
-  store.on('progress', (progress) => {
-    if (progress.state === 'downloading' && progress.bytesTotal) {
-      const pct = Math.floor((progress.bytesDone / progress.bytesTotal) * 100);
-      if (pct % 10 === 0) process.stdout.write(`Downloading ${progress.id}: ${pct}%\n`);
-    }
-  });
-  const id = 'kokoro-en-v0_19';
-  if (!(await store.discover(id))) {
-    process.stdout.write(`Installing ${MODEL_CATALOG[id].name} for the packaged TTS smoke test\n`);
-    await store.ensure(id);
-  }
-  return store.directory(id);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  mkdirSync(downloads, { recursive: true, mode: 0o700 });
+  if (modelReady(dir)) return dir;
+  process.stdout.write('Installing Kokoro English v0.19 for the packaged TTS smoke test\n');
+  const archive = path.join(downloads, 'kokoro-en-v0_19.tar.bz2');
+  await downloadArchive(ARTIFACT.url, archive, ARTIFACT.sha256);
+  await extractArchive(archive, dir);
+  if (!modelReady(dir)) throw new Error(`Kokoro extract missed files in ${dir}`);
+  await fs.rm(archive, { force: true });
+  return dir;
 }
 
 function runElectron(worker, models) {
@@ -94,7 +132,7 @@ function runElectron(worker, models) {
 }
 
 const appDir = packagedApp();
-if (!fs.existsSync(appDir)) {
+if (!existsSync(appDir)) {
   throw new Error(`Packaged app not found at ${appDir}. Run npm run package first.`);
 }
 const worker = findWorker(appDir);
