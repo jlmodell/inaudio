@@ -5,6 +5,7 @@ export interface WebPaths {
   data: string;
   models: string;
   downloads: string;
+  browserTts: string;
   history: string;
   settings: string;
   assets: string;
@@ -27,12 +28,13 @@ export function createPaths(data: string, assets: string, webRoot: string): WebP
     data: root,
     models: path.join(root, 'models'),
     downloads: path.join(root, 'downloads'),
+    browserTts: path.join(root, 'browser-tts'),
     history: path.join(root, 'history.json'),
     settings: path.join(root, 'settings.json'),
     assets: path.resolve(assets),
     webRoot: path.resolve(webRoot),
   };
-  for (const dir of [paths.data, paths.models, paths.downloads]) {
+  for (const dir of [paths.data, paths.models, paths.downloads, paths.browserTts]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   return paths;

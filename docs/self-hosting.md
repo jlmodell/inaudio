@@ -2,13 +2,15 @@
 
 This is the same speech stack as the desktop app — sherpa-onnx on your machine, no cloud speech API — served as a website. Anyone in the house can open it in Safari or Chrome. There is nothing to install on their computer.
 
-Speech models run **on the server**, not in the browser. A phone or a laptop only sends microphone audio and plays the result. That is the better default here: the English model is about 650 MB, the voice model about 320 MB, and you download them once onto the host. In-browser WASM would make every device fetch those files and do the work on whatever CPU it has.
+Speech-to-text runs **on the server**. A phone or a laptop sends microphone audio and gets text back. The English model is about 650 MB and the server voice about 320 MB; you download those once onto the host.
+
+Read-aloud defaults to an **on-device** Kokoro voice in the browser (about 90 MB, fetched once from this Inaudio and cached). Safari and Chrome on a Mac typically keep up with playback. iPhone Safari may run out of memory; Inaudio then switches to the browser's built-in voice. Settings can pick the built-in voice (instant) or the server voice (the host computer speaks).
 
 ## What you get
 
 - Dictate from the browser microphone, with the transcript updating while you speak
 - A searchable history and copy-to-clipboard
-- Read-aloud of pasted text
+- Read-aloud of pasted text (on this device by default; built-in or server voice in Settings)
 - An optional password, because the page is reachable on the network
 
 Desktop-only pieces stay in the Electron app: typing into other programs, system-audio capture, the floating window, the tray, and global shortcuts.
@@ -21,7 +23,7 @@ On the computer that will host Inaudio (any machine that can run Docker):
 docker compose up --build
 ```
 
-The first start downloads the speech models into a Docker volume. That can take several minutes and needs internet. Later starts reuse the volume.
+The first start downloads the speech models — and the smaller on-device read-aloud voice — into a Docker volume. That can take several minutes and needs internet. Later starts reuse the volume.
 
 Open [http://localhost:8080](http://localhost:8080) on that computer.
 
@@ -45,7 +47,7 @@ Pick one of these. Both keep traffic on machines you already trust.
 
 Install Tailscale on the host and on the Mac or Windows computer. Open `http://<hostname>.<tailnet>.ts.net:8080` — or, if you turn on Tailscale Serve / HTTPS, the `https://` URL it prints. That URL is enough for the microphone.
 
-Read-aloud streams sentence audio as it is synthesized. The server flushes each chunk and pads the first line so proxies (including Tailscale Serve) do not hold the whole story until the end. `docker compose logs` prints model load, warmup, per-sentence synth time, and time to first audio.
+Read-aloud on this device downloads the browser voice from your Inaudio on first use (progress is on the page) and then generates the next sentence while the current one plays. The server voice still streams sentence audio as it is synthesized; the server flushes each chunk and pads the first line so proxies (including Tailscale Serve) do not hold the whole story until the end. `docker compose logs` prints model load, warmup, per-sentence synth time, and time to first audio.
 
 ### Caddy in front (LAN HTTPS)
 

@@ -5,6 +5,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { MODEL_CATALOG, isAllowedDownloadUrl } from '@shared/domain/models';
+import { BROWSER_TTS_FILES } from '@shared/web/browser-tts';
 import { assertSafePath } from '../main/services/model-integrity';
 
 export interface DownloadOptions {
@@ -65,12 +66,16 @@ function isNetworkError(error: unknown): boolean {
 
 export async function downloadVerified(options: DownloadOptions): Promise<void> {
   const { url, destination, expectedBytes, expectedSha256, signal } = options;
-  const trusted = Object.values(MODEL_CATALOG).some((model) =>
-    model.artifacts.some(
-      (artifact) =>
-        artifact.url === url && artifact.bytes === expectedBytes && artifact.sha256 === expectedSha256,
-    ),
-  );
+  const trusted =
+    Object.values(MODEL_CATALOG).some((model) =>
+      model.artifacts.some(
+        (artifact) =>
+          artifact.url === url && artifact.bytes === expectedBytes && artifact.sha256 === expectedSha256,
+      ),
+    ) ||
+    BROWSER_TTS_FILES.some(
+      (file) => file.url === url && file.bytes === expectedBytes && file.sha256 === expectedSha256,
+    );
   if (!trusted || !isAllowedModelDownloadUrl(url)) throw new Error('Untrusted model download');
   assertSafePath(path.dirname(destination));
 

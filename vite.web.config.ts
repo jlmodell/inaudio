@@ -9,14 +9,20 @@ function contentSecurityPolicy(): Plugin {
   return {
     name: 'inaudio-web-csp',
     transformIndexHtml(html) {
-      return html.replace('%INAUDIO_CSP%', buildContentSecurityPolicy({ dev: false }));
+      return html.replace('%INAUDIO_CSP%', buildContentSecurityPolicy({ dev: false, wasm: true }));
     },
   };
 }
 
+const resolve = {
+  alias,
+  conditions: ['onnxruntime-web-use-extern-wasm', 'import', 'module', 'browser', 'default'],
+};
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), contentSecurityPolicy()],
-  resolve: { alias },
+  resolve,
+  worker: { format: 'es', resolve },
   build: {
     outDir: 'out/web',
     emptyOutDir: true,

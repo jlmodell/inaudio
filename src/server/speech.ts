@@ -7,6 +7,7 @@ import { normalizeText, segmentText, type TextSegment } from '@shared/read-aloud
 import { applyReplacements } from '@shared/text/replacements';
 import type { SttCleanup, SttResult, TtsResult } from '@shared/worker/protocol';
 import type { WebLiveResult, WebModelProgress, WebStatus } from '@shared/web/api';
+import { BrowserTtsStore } from './browser-tts';
 import { CleanupModels } from './cleanup';
 import type { WebConfig } from './config';
 import { JsonHistory } from './history';
@@ -119,6 +120,7 @@ export class SpeechService {
   readonly history: JsonHistory;
   readonly settings: SettingsStore;
   readonly models: ModelStore;
+  readonly browserTts: BrowserTtsStore;
   readonly cleanup: CleanupModels;
   private readonly backend: SpeechBackend;
   private readonly sessions = new Map<string, LiveSession>();
@@ -138,6 +140,10 @@ export class SpeechService {
       defaultSettings(config.sttModelId, config.ttsModelId),
     );
     this.models = new ModelStore(config.paths.models, config.paths.downloads);
+    this.browserTts = new BrowserTtsStore(
+      config.paths.browserTts,
+      config.downloadModels && !config.fakeSpeech,
+    );
     this.cleanup = new CleanupModels(`${config.paths.assets}/models`);
     this.backend = backend ?? (config.fakeSpeech ? new FakeSpeechBackend() : new HostBackend(new NodeInferenceHost()));
     this.models.on('progress', (progress) => this.logModelProgress(progress));
@@ -154,6 +160,9 @@ export class SpeechService {
       log.info('Fake speech engine is ready (INAUDIO_FAKE_SPEECH=1).');
       return;
     }
+    void this.browserTts.ensure().catch((error) => {
+      log.error('On-device voice is not ready; browsers can still use the built-in voice', error);
+    });
     log.info(`Looking for models in ${this.config.paths.models}`);
     await this.models.discover(sttId);
     await this.models.discover(ttsId);
@@ -185,6 +194,7 @@ export class SpeechService {
       authenticated,
       stt: this.modelProgress(settings.sttModelId, this.backend.sttReady(settings.sttModelId)),
       tts: this.modelProgress(settings.ttsModelId, this.backend.ttsReady(settings.ttsModelId)),
+      browserTts: this.browserTts.status(),
       ...(this.message ? { message: this.message } : {}),
     };
   }

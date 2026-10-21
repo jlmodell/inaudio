@@ -24,6 +24,18 @@ try {
   /* Vite already wrote index.html at the web root. */
 }
 
+const ortSrc = path.join(root, 'node_modules/onnxruntime-web/dist');
+const ortDest = path.join(root, 'out/web/ort');
+await fs.mkdir(ortDest, { recursive: true });
+for (const name of [
+  'ort-wasm-simd-threaded.wasm',
+  'ort-wasm-simd-threaded.jsep.wasm',
+  'ort-wasm-simd-threaded.mjs',
+  'ort-wasm-simd-threaded.jsep.mjs',
+]) {
+  await fs.copyFile(path.join(ortSrc, name), path.join(ortDest, name));
+}
+
 for (const [name, entry] of [
   ['index', 'src/server/index.ts'],
   ['inference-worker', 'src/server/inference-worker.ts'],

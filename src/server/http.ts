@@ -15,7 +15,14 @@ import { decodeFloat32le, decodeWav, encodeWav } from './wav';
 
 const JSON_LIMIT = 64 * 1024;
 const AUDIO_LIMIT = 50 * 1024 * 1024;
-const CSP = buildContentSecurityPolicy({ dev: false });
+const CSP = buildContentSecurityPolicy({ dev: false, wasm: true });
+
+/** SharedArrayBuffer (multi-thread WASM) needs a cross-origin isolated document. */
+export const WEB_ISOLATION_HEADERS = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+} as const;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -27,6 +34,9 @@ const MIME: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.bin': 'application/octet-stream',
+  '.onnx': 'application/octet-stream',
 };
 
 export function createServer(config: WebConfig, speech: SpeechService): http.Server {
@@ -73,8 +83,11 @@ async function route(
   if (method === 'GET' && url.pathname === '/api/status') {
     return json(res, 200, speech.status(signedIn));
   }
-  if (url.pathname.startsWith('/api/') && !signedIn) {
+  if ((url.pathname.startsWith('/api/') || url.pathname.startsWith('/browser-tts/')) && !signedIn) {
     return json(res, 401, { error: 'Sign in to use Inaudio.' });
+  }
+  if (method === 'GET' && url.pathname.startsWith('/browser-tts/')) {
+    return speech.browserTts.serve(res, url.pathname, { ...WEB_ISOLATION_HEADERS });
   }
   if (method === 'GET' && url.pathname === '/api/settings') {
     return json(res, 200, speech.settings.get());
@@ -147,6 +160,7 @@ async function route(
     const spoken = await speech.speak(clipped, voice.data, speed);
     const wav = encodeWav(spoken.samples, spoken.sampleRate);
     res.writeHead(200, {
+      ...WEB_ISOLATION_HEADERS,
       'Content-Type': 'audio/wav',
       'Content-Length': wav.length,
       'Cache-Control': 'no-store',
@@ -175,6 +189,7 @@ async function streamSpeak(
   const segments = speech.planSpeak(text);
   if (!segments.length) return json(res, 400, { error: 'Paste some text to read aloud.' });
   res.writeHead(200, {
+    ...WEB_ISOLATION_HEADERS,
     'Content-Type': 'application/x-ndjson; charset=utf-8',
     'Cache-Control': 'no-store, no-transform',
     'Content-Encoding': 'identity',
@@ -234,6 +249,7 @@ async function serveStatic(res: http.ServerResponse, root: string, pathname: str
   }
   const type = MIME[path.extname(file)] ?? 'application/octet-stream';
   res.writeHead(200, {
+    ...WEB_ISOLATION_HEADERS,
     'Content-Type': type,
     'Cache-Control': type.includes('html') ? 'no-store' : 'public, max-age=86400',
     'Content-Security-Policy': CSP,
@@ -282,6 +298,7 @@ function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array>
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const payload = Buffer.from(JSON.stringify(body));
   res.writeHead(status, {
+    ...WEB_ISOLATION_HEADERS,
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     'Content-Length': payload.length,

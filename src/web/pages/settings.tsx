@@ -1,9 +1,11 @@
 import { MODEL_CATALOG, MODEL_IDS } from '@shared/domain/models';
+import type { ReadAloudEngine } from '@shared/web/read-aloud-engine';
 import { PageHeader, Row, Section } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Switch } from '@renderer/components/ui/switch';
 import { api } from '../api';
 import { keys, queryClient, useSettings, useStatus, useUpdateSettings } from '../queries';
+import { writeDeviceFallback } from '../tts/device-fallback';
 
 const STT_OPTIONS = MODEL_IDS.filter((id) => MODEL_CATALOG[id].kind === 'stt').map((id) => ({
   value: id,
@@ -41,6 +43,30 @@ export function SettingsPage() {
             checked={settings.speechCleanup}
             onCheckedChange={(speechCleanup) => update.mutate({ speechCleanup })}
             aria-label="Speech cleanup"
+          />
+        </Row>
+        <Row
+          label="Read aloud"
+          description={
+            settings.readAloudEngine === 'browser'
+              ? 'Downloads a voice once onto this phone or computer, then reads without waiting on the server.'
+              : settings.readAloudEngine === 'speech'
+                ? 'Starts immediately with the voice built into Safari or Chrome.'
+                : 'The host computer speaks. Useful if this device cannot run the on-device voice.'
+          }
+        >
+          <Select
+            label="Read aloud"
+            value={settings.readAloudEngine}
+            onValueChange={(readAloudEngine: ReadAloudEngine) => {
+              if (readAloudEngine === 'browser') writeDeviceFallback(null);
+              update.mutate({ readAloudEngine });
+            }}
+            options={[
+              { value: 'browser', label: 'On this device', hint: 'Kokoro, after a one-time download' },
+              { value: 'speech', label: "This browser's voice", hint: 'Instant' },
+              { value: 'server', label: 'This server', hint: 'The host computer speaks' },
+            ]}
           />
         </Row>
       </Section>

@@ -63,6 +63,7 @@ async function startServer() {
   void ready;
   return {
     port,
+    data,
     logs,
     async close() {
       child.kill('SIGTERM');
@@ -90,6 +91,8 @@ if (!skipWithoutBuild()) {
 
     const page = await fetch(`${base}/`);
     assert.equal(page.status, 200);
+    assert.equal(page.headers.get('cross-origin-opener-policy'), 'same-origin');
+    assert.equal(page.headers.get('cross-origin-embedder-policy'), 'require-corp');
     assert.match(await page.text(), /Inaudio/);
 
     const status = await fetch(`${base}/api/status`).then(async (response) => {
@@ -99,6 +102,8 @@ if (!skipWithoutBuild()) {
     assert.equal(status.authRequired, true);
     assert.equal(status.authenticated, false);
     assert.equal(typeof status.ready, 'boolean');
+    assert.equal(status.browserTts.installed, false);
+    assert.ok(status.browserTts.bytesTotal > 0);
 
     const history = await fetch(`${base}/api/history`);
     assert.equal(history.status, 401);
@@ -231,6 +236,46 @@ if (!skipWithoutBuild()) {
     assert.match(logs, /Speak stream opened in \d+ms/);
     assert.match(logs, /First audio flushed at \d+ms/);
     assert.match(logs, /Segment 1\/\d+: \d+ chars in \d+ms/);
+  });
+
+  test('settings keep the on-device voice as default and serve cached browser files', async (t) => {
+    const server = await startServer();
+    t.after(() => server.close());
+    const base = `http://127.0.0.1:${server.port}`;
+    const headers = await signIn(base);
+
+    const settings = await fetch(`${base}/api/settings`, { headers }).then((r) => r.json());
+    assert.equal(settings.readAloudEngine, 'browser');
+
+    const patched = await fetch(`${base}/api/settings`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ readAloudEngine: 'speech' }),
+    }).then((r) => r.json());
+    assert.equal(patched.readAloudEngine, 'speech');
+
+    const locked = await fetch(`${base}/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/config.json`);
+    assert.equal(locked.status, 401);
+
+    const missing = await fetch(`${base}/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/config.json`, { headers });
+    assert.equal(missing.status, 404);
+
+    const relative = path.join(
+      server.data,
+      'browser-tts',
+      'onnx-community',
+      'Kokoro-82M-v1.0-ONNX',
+      'config.json',
+    );
+    fs.mkdirSync(path.dirname(relative), { recursive: true });
+    fs.writeFileSync(relative, '{"model_type":"style_text_to_speech_2"}');
+    const served = await fetch(`${base}/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/config.json`, { headers });
+    assert.equal(served.status, 200);
+    assert.match(await served.text(), /style_text_to_speech_2/);
+
+    const runtime = await fetch(`${base}/ort/ort-wasm-simd-threaded.wasm`);
+    assert.equal(runtime.status, 200);
+    assert.equal(runtime.headers.get('content-type'), 'application/wasm');
   });
 }
 
