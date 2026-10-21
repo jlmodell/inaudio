@@ -8,6 +8,7 @@ import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
 import { buildContentSecurityPolicy } from '@shared/security/csp';
 import { AuthGate, readCookie, SESSION_COOKIE } from './auth';
 import type { WebConfig } from './config';
+import { log } from './log';
 import { resolveInside } from './paths';
 import type { SpeechService } from './speech';
 import { decodeFloat32le, decodeWav, encodeWav } from './wav';
@@ -32,6 +33,7 @@ export function createServer(config: WebConfig, speech: SpeechService): http.Ser
   const auth = new AuthGate(config.password);
   return http.createServer((req, res) => {
     void route(req, res, config, speech, auth).catch((error) => {
+      log.error(`${req.method ?? 'GET'} ${req.url ?? '/'} failed with 500`, error);
       if (!res.headersSent) json(res, 500, { error: error instanceof Error ? error.message : String(error) });
     });
   });

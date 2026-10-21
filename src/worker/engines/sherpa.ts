@@ -53,7 +53,9 @@ let cached: SherpaModule | null = null;
 
 export function loadSherpa(): SherpaModule {
   if (!cached) {
-    const require = createRequire(__filename);
+    // Electron's worker bundle is CJS (__filename). The web server worker is ESM,
+    // so createRequire must use import.meta.url (Vite rewrites it in the CJS build).
+    const require = createRequire(import.meta.url);
     try {
       cached = require('sherpa-onnx-node') as SherpaModule;
     } catch (error) {

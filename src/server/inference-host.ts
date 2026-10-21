@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
+import { log } from './log';
 import type {
   PingResult,
   SttCleanup,
@@ -59,9 +60,12 @@ export class NodeInferenceHost extends EventEmitter<{
         if ('type' in message) {
           if (message.type === 'ready') {
             clearTimeout(bootTimer);
+            log.info('Inference worker is ready');
             resolve();
           } else if (message.type === 'log') {
-            console[message.level](`[web-inference] ${message.message}`);
+            const line = `[web-inference] ${message.message}`;
+            if (message.level === 'error') log.error(line);
+            else log.info(line);
           }
           return;
         }
@@ -74,10 +78,12 @@ export class NodeInferenceHost extends EventEmitter<{
       });
       child.once('error', (error) => {
         clearTimeout(bootTimer);
+        log.error('Inference worker failed to start', error);
         reject(error);
       });
       child.once('exit', (code) => {
         clearTimeout(bootTimer);
+        if (code) log.error(`Inference worker exited (${code})`);
         this.fail(new Error(`Inference worker exited (${code})`));
       });
     });
