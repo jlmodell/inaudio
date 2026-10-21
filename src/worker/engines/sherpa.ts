@@ -49,13 +49,30 @@ export interface SherpaTts {
   }>;
 }
 
+/** CJS Electron workers get this from Node's wrapper; ESM workers do not. */
+declare const __filename: string;
+
+/**
+ * createRequire needs a real file URL or absolute path. The Electron Forge
+ * worker is CJS: Vite leaves `import.meta.url` as undefined there, which is
+ * the packaged "filename … Received undefined" crash. The web worker is ESM
+ * and has a real `import.meta.url`.
+ */
+export function requireAnchor(): string {
+  try {
+    if (typeof __filename === 'string' && __filename.length > 0) return __filename;
+  } catch {
+    // ESM: __filename is not defined
+  }
+  if (typeof import.meta.url === 'string' && import.meta.url.length > 0) return import.meta.url;
+  throw new Error('Unable to resolve the sherpa-onnx runtime from this process.');
+}
+
 let cached: SherpaModule | null = null;
 
 export function loadSherpa(): SherpaModule {
   if (!cached) {
-    // Electron's worker bundle is CJS (__filename). The web server worker is ESM,
-    // so createRequire must use import.meta.url (Vite rewrites it in the CJS build).
-    const require = createRequire(import.meta.url);
+    const require = createRequire(requireAnchor());
     try {
       cached = require('sherpa-onnx-node') as SherpaModule;
     } catch (error) {

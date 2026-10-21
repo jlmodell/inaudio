@@ -37,7 +37,7 @@ jobs:
   build:
     name: Package (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -79,8 +79,14 @@ jobs:
           done
           iconutil -c icns assets/icons/icon.iconset -o assets/icons/icon.icns
           rm -r assets/icons/icon.iconset
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/inaudio-smoke-models
+          key: kokoro-en-v0_19-912804855a04745fa77a30be545b3f9a5d15c4d66db00b88cbcd4921df605ac7
       - name: Build release artifacts
         run: npm run package:release
+      - name: Smoke test packaged TTS
+        run: node scripts/desktop-tts-smoke.mjs
       - name: Collect installers and checksums
         run: node scripts/release-assets.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

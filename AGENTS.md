@@ -4,6 +4,7 @@
 - Typecheck: `npx tsc --noEmit -p tsconfig.json` (or `npm run typecheck`)
 - Lint: `npx eslint --ext .ts,.tsx src` (or `npm run lint`)
 - Script tests: `node --test scripts/*.test.mjs`
+- Packaged TTS smoke (after `npm run package`): `node scripts/desktop-tts-smoke.mjs`
 - On Windows, run npm from Git Bash: PowerShell blocks `npm.ps1` (execution policy).
 - `npm start` exits immediately if the installed Inaudio app is running (single-instance lock, shared `%APPDATA%\Inaudio`).
 
