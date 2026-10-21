@@ -9,6 +9,8 @@ export function rewriteModelUrl(url: string, origin: string): string {
   } catch {
     return url;
   }
+  // eSpeak-NG (phonemizer) instantiates its inlined WASM via data:/blob: fetches.
+  if (parsed.protocol === 'data:' || parsed.protocol === 'blob:') return url;
   if (parsed.origin === origin) return parsed.href;
   if (url.startsWith(HF_PREFIX) || isKokoroHuggingFace(parsed)) {
     const rest = parsed.pathname.replace(/^\/onnx-community\/Kokoro-82M-v1\.0-ONNX\/resolve\/[^/]+\//, '').split('?')[0];
