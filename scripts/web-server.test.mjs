@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { encodeWav } from '../src/server/wav.ts';
+import { ORT_RUNTIME_FILES, ortFileContentType, ortFileUrl } from '../src/shared/web/ort-runtime.ts';
 
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)));
 const serverJs = path.join(root, 'out/server/index.mjs');
@@ -300,9 +301,21 @@ if (!skipWithoutBuild()) {
     assert.equal(served.status, 200);
     assert.match(await served.text(), /style_text_to_speech_2/);
 
-    const runtime = await fetch(`${base}/ort/ort-wasm-simd-threaded.wasm`);
-    assert.equal(runtime.status, 200);
-    assert.equal(runtime.headers.get('content-type'), 'application/wasm');
+    for (const name of ORT_RUNTIME_FILES) {
+      const runtime = await fetch(`${base}${ortFileUrl(name)}`);
+      assert.equal(runtime.status, 200, name);
+      assert.equal(runtime.headers.get('content-type'), ortFileContentType(name), name);
+      assert.equal(runtime.headers.get('cross-origin-resource-policy'), 'same-origin', name);
+      assert.equal(runtime.headers.get('cross-origin-embedder-policy'), 'require-corp', name);
+      assert.equal(runtime.headers.get('cross-origin-opener-policy'), 'same-origin', name);
+      const body = Buffer.from(await runtime.arrayBuffer());
+      assert.ok(body.byteLength > 0, name);
+      if (name.endsWith('.mjs')) {
+        assert.match(body.toString('utf8', 0, 80), /import\.meta\.url|export |function /, name);
+      } else {
+        assert.equal(body.toString('ascii', 0, 4), '\0asm', name);
+      }
+    }
   });
 }
 

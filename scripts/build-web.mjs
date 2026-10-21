@@ -3,6 +3,7 @@ import { builtinModules } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
+import { ORT_RUNTIME_FILES } from '../src/shared/web/ort-runtime.ts';
 
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)));
 const alias = {
@@ -27,12 +28,7 @@ try {
 const ortSrc = path.join(root, 'node_modules/onnxruntime-web/dist');
 const ortDest = path.join(root, 'out/web/ort');
 await fs.mkdir(ortDest, { recursive: true });
-for (const name of [
-  'ort-wasm-simd-threaded.wasm',
-  'ort-wasm-simd-threaded.jsep.wasm',
-  'ort-wasm-simd-threaded.mjs',
-  'ort-wasm-simd-threaded.jsep.mjs',
-]) {
+for (const name of ORT_RUNTIME_FILES) {
   await fs.copyFile(path.join(ortSrc, name), path.join(ortDest, name));
 }
 
