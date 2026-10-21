@@ -2,11 +2,12 @@ import { env as hfEnv } from '@huggingface/transformers';
 import { env as kokoroEnv, KokoroTTS } from 'kokoro-js';
 import { BROWSER_TTS_MODEL_ID, BROWSER_TTS_URL_PREFIX } from '@shared/web/browser-tts';
 import { rewriteModelUrl } from '@shared/web/model-url';
+import { ORT_URL_PREFIX } from '@shared/web/ort-runtime';
 import { voiceErrorText } from '@shared/web/voice-error';
 import type { KokoroWorkerIn, KokoroWorkerOut } from './protocol';
 
 const CACHE = 'inaudio-browser-tts';
-const WASM_PATHS = '/ort/';
+const WASM_PATHS = `${ORT_URL_PREFIX}/`;
 
 hfEnv.allowRemoteModels = false;
 hfEnv.allowLocalModels = true;
