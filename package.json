@@ -15,6 +15,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{ts,json}\"",
     "check": "npm run typecheck && npm run lint",
+    "build:web": "node scripts/build-web.mjs",
+    "start:web": "node out/server/index.mjs",
+    "web": "npm run build:web && npm run start:web",
     "icons": "node scripts/build-icons.mjs"
   },
   "keywords": [],
