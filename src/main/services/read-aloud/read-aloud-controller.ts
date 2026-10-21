@@ -5,7 +5,6 @@ import {
   IDLE_READ_ALOUD,
   MAX_READ_ALOUD_CHARS,
   READ_ALOUD_KEEP_BEHIND,
-  READ_ALOUD_PREFETCH,
   readAloudActive,
   type ReadAloudChunk,
   type ReadAloudControl,
@@ -19,6 +18,7 @@ import type { Settings } from '@shared/domain/settings';
 import type { DictationPhase, OverlayReading } from '@shared/domain/system';
 import { EVENTS } from '@shared/ipc/channels';
 import type { TtsResult } from '@shared/worker/protocol';
+import { aheadEnd, clampAhead } from '@shared/read-aloud/ahead';
 import { normalizeText, segmentText } from '@shared/read-aloud/segment';
 import { appIcon } from '../../app/assets';
 import { SelectionProvider, type SelectionResult } from './selection-provider';
@@ -158,19 +158,21 @@ export class ReadAloudController {
 
   /** A new voice or speed applies from the next segment; the one playing finishes as it is. */
   onSettings(next: Settings, previous: Settings): void {
-    if (next.tts.voiceId === previous.tts.voiceId && next.tts.speed === previous.tts.speed) return;
     if (!this.session) return;
-    const { index } = this.state;
-    this.delivered = new Set([...this.delivered].filter((i) => i <= index));
-    this.state = {
-      ...this.state,
-      take: this.state.take + 1,
-      voiceId: next.tts.voiceId as VoiceId,
-      speed: next.tts.speed,
-      durations: this.state.durations.map((ms, i) => (i <= index ? ms : 0)),
-    };
-    this.publish();
-    this.pump();
+    const voiceOrSpeed = next.tts.voiceId !== previous.tts.voiceId || next.tts.speed !== previous.tts.speed;
+    if (voiceOrSpeed) {
+      const { index } = this.state;
+      this.delivered = new Set([...this.delivered].filter((i) => i <= index));
+      this.state = {
+        ...this.state,
+        take: this.state.take + 1,
+        voiceId: next.tts.voiceId as VoiceId,
+        speed: next.tts.speed,
+        durations: this.state.durations.map((ms, i) => (i <= index ? ms : 0)),
+      };
+      this.publish();
+    }
+    if (voiceOrSpeed || next.tts.readAloudBuffer !== previous.tts.readAloudBuffer) this.pump();
   }
 
   /** The main window (re)loaded and holds no audio, so everything is synthesized again. */
@@ -288,6 +290,22 @@ export class ReadAloudController {
     }
   }
 
+  /** True once the current sentence is ready, and, at the start, once the sentence buffer is full. */
+  private startReady(): boolean {
+    if (!this.delivered.has(this.state.index)) return false;
+    if (this.state.status !== 'preparing') return true;
+    const need = aheadEnd(this.state.index, this.state.count, this.buffer()) - this.state.index;
+    let have = 0;
+    for (let i = this.state.index; i < this.state.index + need; i++) {
+      if (this.delivered.has(i)) have += 1;
+    }
+    return have >= need;
+  }
+
+  private buffer(): number {
+    return clampAhead(this.options.settings().tts.readAloudBuffer);
+  }
+
   /** Synthesizes the next missing segment within the prefetch window, one at a time. */
   private pump(): void {
     const session = this.session;
@@ -295,7 +313,7 @@ export class ReadAloudController {
     const { sessionId } = session;
     const { index, count, take, voiceId, speed } = this.state;
     let next = -1;
-    for (let i = index; i < Math.min(count, index + READ_ALOUD_PREFETCH + 1); i++) {
+    for (let i = index; i < aheadEnd(index, count, this.buffer()); i++) {
       if (!this.delivered.has(i)) {
         next = i;
         break;
@@ -328,12 +346,12 @@ export class ReadAloudController {
         durations[next] = Math.round((result.samples.length / result.sampleRate) * 1000);
         const chunk: ReadAloudChunk = { sessionId, index: next, take, samples: result.samples, sampleRate: result.sampleRate };
         this.options.send(EVENTS.readAloudChunk, chunk);
-        const current = next === this.state.index;
+        const ready = this.startReady();
         this.state = {
           ...this.state,
           durations,
-          waiting: current ? false : this.state.waiting,
-          status: current && this.state.status === 'preparing' ? 'playing' : this.state.status,
+          waiting: !ready,
+          status: ready && this.state.status === 'preparing' ? 'playing' : this.state.status,
         };
         this.publish();
       })

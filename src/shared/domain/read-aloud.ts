@@ -5,8 +5,6 @@ export type { TextSegment };
 
 /** Longest text one session reads; a longer selection is cut here and says so. */
 export const MAX_READ_ALOUD_CHARS = 50_000;
-/** Segments synthesized ahead of the one playing. */
-export const READ_ALOUD_PREFETCH = 2;
 /**
  * Played segments the renderer keeps for replay and seeking back. Both sides drop anything
  * further behind the current segment, so the main process knows what must be synthesized again.

@@ -41,3 +41,15 @@ export function wordAtChar(text: string, charIndex: number): string {
   const previous = [...words].reverse().find((item) => item.start <= charIndex);
   return previous?.word ?? words[0]?.word ?? '';
 }
+
+/** The word whose cue has started by `atMs`, for one-word speed reading. */
+export function wordAtMs(text: string, durationMs: number, atMs: number): string {
+  const cues = wordCues(text, durationMs);
+  if (!cues.length) return '';
+  let current = cues[0]?.word ?? '';
+  for (const cue of cues) {
+    if (cue.atMs > atMs) break;
+    current = cue.word;
+  }
+  return current;
+}

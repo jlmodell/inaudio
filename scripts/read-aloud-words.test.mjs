@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { splitWords, wordAtChar, wordCues } from '../src/shared/read-aloud/words.ts';
+import { splitWords, wordAtChar, wordAtMs, wordCues } from '../src/shared/read-aloud/words.ts';
 
 test('splitWords keeps offsets into the original string', () => {
   const words = splitWords('Hi there, world');
@@ -27,4 +27,12 @@ test('wordAtChar finds the word under a speech boundary', () => {
   assert.equal(wordAtChar('hello world', 6), 'world');
   assert.equal(wordAtChar('hello world', 5), 'hello');
   assert.equal(wordAtChar('', 0), '');
+});
+
+test('wordAtMs follows the cue that has already started', () => {
+  assert.equal(wordAtMs('Hi there', 700, 0), 'Hi');
+  assert.equal(wordAtMs('Hi there', 700, 199), 'Hi');
+  assert.equal(wordAtMs('Hi there', 700, 200), 'there');
+  assert.equal(wordAtMs('Hi there', 700, 700), 'there');
+  assert.equal(wordAtMs('', 700, 0), '');
 });

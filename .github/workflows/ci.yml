@@ -38,6 +38,7 @@ jobs:
     name: Package (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
+    if: ${{ !inputs.release-build || matrix.platform != 'linux-x64' }}
     strategy:
       fail-fast: false
       matrix:

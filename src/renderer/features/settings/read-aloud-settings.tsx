@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { KOKORO_VOICES, type VoiceId } from '@shared/domain/models';
 import type { Settings } from '@shared/domain/settings';
 import type { SystemStatus } from '@shared/domain/system';
+import { MAX_READ_ALOUD_BUFFER, MIN_READ_ALOUD_BUFFER } from '@shared/read-aloud/ahead';
 import { Notice, Row } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
@@ -43,12 +44,12 @@ export function ReadAloudSettings({ tts, status, onChange }: ReadAloudSettingsPr
         />
       </Row>
 
-      <Row label="Speed" description="Applies from the next sentence when changed mid-reading.">
+      <Row label="Speed" description="Applies from the next sentence when changed mid-reading. Up to 3×.">
         <div className="flex w-56 items-center gap-3">
           <Slider
             aria-label="Speech speed"
             min={0.5}
-            max={2}
+            max={3}
             step={0.05}
             value={[speed ?? tts.speed]}
             onValueChange={([next]) => next !== undefined && setSpeed(next)}
@@ -140,6 +141,36 @@ export function ReadAloudSettings({ tts, status, onChange }: ReadAloudSettingsPr
           checked={tts.followAlong}
           onCheckedChange={(followAlong) => onChange({ followAlong })}
         />
+      </Row>
+
+      <Row
+        id="settings-read-aloud-speed-reading"
+        label="Speed reading"
+        description="Show one word at a time on the Read Aloud page, timed to the voice."
+      >
+        <Switch
+          aria-label="Speed reading"
+          checked={tts.speedReading}
+          onCheckedChange={(speedReading) => onChange({ speedReading })}
+        />
+      </Row>
+
+      <Row
+        id="settings-read-aloud-buffer"
+        label="Sentence buffer"
+        description="How many sentences to generate before playback starts, then stay that far ahead."
+      >
+        <div className="flex w-56 items-center gap-3">
+          <Slider
+            aria-label="Sentence buffer"
+            min={MIN_READ_ALOUD_BUFFER}
+            max={MAX_READ_ALOUD_BUFFER}
+            step={1}
+            value={[tts.readAloudBuffer]}
+            onValueChange={([readAloudBuffer]) => readAloudBuffer !== undefined && onChange({ readAloudBuffer })}
+          />
+          <span className="w-8 font-mono text-sm tabular-nums">{tts.readAloudBuffer}</span>
+        </div>
       </Row>
     </>
   );

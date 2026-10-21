@@ -28,7 +28,7 @@ if (!existsSync(path.join(resources, 'app-update.yml'))) {
 // The installer's hero animations and header, rendered fresh for each build (never committed).
 if (platform === 'win32') run(process.execPath, [path.resolve('scripts', 'build-installer-art.mjs')]);
 
-const targetArgs = platform === 'win32' ? ['--win', 'nsis'] : platform === 'darwin' ? ['--mac', 'zip'] : ['--linux', 'AppImage', 'deb', 'rpm'];
+const targetArgs = platform === 'win32' ? ['--win', 'nsis'] : platform === 'darwin' ? ['--mac', 'zip', 'dmg'] : ['--linux', 'AppImage', 'deb', 'rpm'];
 run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
   'electron-builder',
   '--prepackaged',
