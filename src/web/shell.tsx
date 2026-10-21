@@ -1,13 +1,11 @@
 import type { ReactNode } from 'react';
-import { BookOpenText, History, Mic, Settings } from 'lucide-react';
+import { BookOpenText, Settings } from 'lucide-react';
 import { Wordmark } from '@renderer/components/brand/logo';
 import { cn } from '@renderer/lib/cn';
 
-export type WebRoute = 'dictate' | 'history' | 'read-aloud' | 'settings';
+export type WebRoute = 'read-aloud' | 'settings';
 
-const NAV: { id: WebRoute; label: string; icon: typeof Mic }[] = [
-  { id: 'dictate', label: 'Dictate', icon: Mic },
-  { id: 'history', label: 'History', icon: History },
+const NAV: { id: WebRoute; label: string; icon: typeof BookOpenText }[] = [
   { id: 'read-aloud', label: 'Read aloud', icon: BookOpenText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

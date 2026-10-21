@@ -274,7 +274,7 @@ export function UpdateSection({
       <Row
         id="settings-whats-new"
         label="Show what’s new after an update"
-        description="Once per version, at a quiet moment, never while you dictate or record."
+        description="Once per version, at a quiet moment, never while something is being read aloud."
       >
         <Button size="sm" variant="ghost" onClick={() => showWhatsNew(true)}>
           Show now

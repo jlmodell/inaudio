@@ -1,10 +1,9 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, powerMonitor, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme, powerMonitor } from 'electron';
 import path from 'node:path';
 import type { AppCommand } from '@shared/domain/system';
 import { DEFAULT_SETTINGS } from '@shared/domain/settings';
 import { EVENTS } from '@shared/ipc/channels';
 import { appPaths } from './app/paths';
-import { LINUX_LOOPBACK_FEATURE } from './app/platform';
 import { registerIpc } from './ipc/register';
 import { handleAppScheme, registerAppScheme } from './security/app-protocol';
 import { applySessionPolicy } from './security/hardening';
@@ -16,9 +15,6 @@ import { createMainWindow } from './windows/main-window';
 import { createCompanionWindow } from './windows/companion-window';
 
 app.setName('Inaudio');
-// Chromium 152 ships PulseAudio loopback for screen share disabled; live transcripts need it.
-// Feature switches are read once at startup, so this has to run before the app is ready.
-if (process.platform === 'linux') app.commandLine.appendSwitch('enable-features', LINUX_LOOPBACK_FEATURE);
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -34,37 +30,10 @@ function bootstrap(): void {
   let ipcReady = false;
   let quitting = false;
   let installingUpdate = false;
-  let quitPromptOpen = false;
   let shutdownStarted = false;
 
   const requestQuit = async (): Promise<void> => {
-    if (quitting || quitPromptOpen) return;
-    const current = services?.settings.get();
-    const dictationPhase = services?.dictation.current().phase;
-    const capturing =
-      (dictationPhase !== undefined && dictationPhase !== 'idle' && dictationPhase !== 'error') ||
-      (services?.live.active() ?? false);
-    if (current?.system.confirmQuitDuringCapture && capturing) {
-      quitPromptOpen = true;
-      try {
-        const options = {
-          type: 'warning' as const,
-          buttons: ['Keep recording', 'Quit Inaudio'],
-          defaultId: 0,
-          cancelId: 0,
-          title: 'Quit Inaudio?',
-          message: 'A recording is in progress.',
-          detail: 'Quitting stops the active dictation or live transcript.',
-        };
-        const parent = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null;
-        const result = parent
-          ? await dialog.showMessageBox(parent, options)
-          : await dialog.showMessageBox(options);
-        if (result.response !== 1) return;
-      } finally {
-        quitPromptOpen = false;
-      }
-    }
+    if (quitting) return;
     quitting = true;
     app.quit();
   };
@@ -84,9 +53,6 @@ function bootstrap(): void {
   };
 
   const showWindow = () => {
-    // Activation and second-instance events can arrive while app.whenReady is
-    // still initializing services. Do not load a renderer before its IPC
-    // handlers have been installed.
     if (!services || !ipcReady) return;
     if (!mainWindow || mainWindow.isDestroyed()) {
       mainWindow = openWindow();
@@ -102,19 +68,15 @@ function bootstrap(): void {
     registerSurface(win.webContents, 'main');
     win.webContents.on('did-finish-load', () => {
       services?.readAloud.rendererReset();
-      services?.live.rendererGone();
     });
-    win.webContents.on('render-process-gone', () => services?.live.rendererGone());
     win.on('close', (event) => {
       if (!quitting && services?.settings.get().system.closeToTray) {
         event.preventDefault();
         win.hide();
       }
-
     });
     win.on('closed', () => {
       if (mainWindow === win) mainWindow = null;
-      services?.live.rendererGone();
     });
     const emitWindowStatus = () => send(EVENTS.statusChanged);
     win.on('maximize', emitWindowStatus);
@@ -144,32 +106,13 @@ function bootstrap(): void {
   const tray = new TrayService(
     {
       show: showWindow,
-      startDictation: () => command('dictation:start'),
-      stopDictation: () => command('dictation:stop'),
-      cancelDictation: () => command('dictation:cancel'),
       readSelection: () => services?.readAloud.toggleSelection(),
       pauseReading: () => services?.readAloud.pause(),
       resumeReading: () => services?.readAloud.resume(),
       stopReading: () => services?.readAloud.stop(),
-      toggleLive: () => services?.live.toggle(),
-      toggleLiveWindow: () => services?.liveWindow.toggle(),
       openSettings: () => {
         showWindow();
         command('navigate:settings');
-      },
-      selectMicrophone: (id) => {
-        if (!services) return;
-        try {
-          services.updateSettings({ audio: { inputDeviceId: id } });
-        } catch (error) {
-          console.error('Could not switch microphone', error);
-        }
-      },
-      toggleOverlay: () => {
-        const current = services?.settings.get();
-        if (!current) return;
-        const enabled = !current.overlay.enabled;
-        services?.updateSettings({ overlay: { enabled } });
       },
       showCompanion: () => services?.companion.show(),
       hideCompanion: () => services?.companion.hide(),
@@ -182,17 +125,9 @@ function bootstrap(): void {
   );
 
   const shortcuts = new ShortcutService({
-    dictation: () => command('dictation:toggle'),
     readAloud: () => services?.readAloud.toggleSelection(),
     readAloudPause: () => services?.readAloud.togglePause(),
     readAloudStop: () => services?.readAloud.stop(),
-    cancel: () => command('dictation:cancel'),
-    overlay: () => {
-      const current = services?.settings.get();
-      if (current) services?.updateSettings({ overlay: { enabled: !current.overlay.enabled } });
-    },
-    live: () => services?.live.toggle(),
-    liveWindow: () => services?.liveWindow.toggle(),
   });
 
   app.on('second-instance', showWindow);
@@ -230,18 +165,9 @@ function bootstrap(): void {
     ipcReady = true;
     s.updater.on('change', (status) => send(EVENTS.updateState, status));
     openCompanion();
-    // The active recognizer is checked first and preloaded at once, so the first recording
-    // never waits for the other models' checks.
-    const activeSttId = s.settings.get().stt.modelId;
-    void s.models.check(activeSttId)
+    const activeTtsId = s.settings.get().tts.modelId;
+    void s.models.check(activeTtsId)
       .catch(() => undefined)
-      .then(() => {
-        if (!s.models.isInstalled(activeSttId)) return;
-        // Loading a 0.6B model during stop makes the UI appear stuck in "Transcribing".
-        void s.ensureLoaded(activeSttId).catch((error: unknown) => {
-          console.error('Active speech model preload failed', error);
-        });
-      })
       .then(() => s.models.discover())
       .then(() => {
         const active = s.modelStatuses().filter((model) => model.active);
@@ -269,19 +195,13 @@ function bootstrap(): void {
     applySystem();
     shortcuts.apply(s.settings.get());
     tray.apply(s.settings.get());
-    s.overlay.sync();
 
     s.settings.on('change', (next, previous) => {
       if (next.appearance.theme !== previous.appearance.theme) applyTheme();
       if (
-        next.dictation.shortcut !== previous.dictation.shortcut ||
-        next.dictation.cancelShortcut !== previous.dictation.cancelShortcut ||
         next.tts.shortcut !== previous.tts.shortcut ||
         next.tts.pauseShortcut !== previous.tts.pauseShortcut ||
-        next.tts.stopShortcut !== previous.tts.stopShortcut ||
-        next.overlay.toggleShortcut !== previous.overlay.toggleShortcut ||
-        next.live.shortcut !== previous.live.shortcut ||
-        next.liveWindow.shortcut !== previous.liveWindow.shortcut
+        next.tts.stopShortcut !== previous.tts.stopShortcut
       ) {
         shortcuts.apply(next);
       }
@@ -290,13 +210,9 @@ function bootstrap(): void {
         next.system.launchMinimized !== previous.system.launchMinimized
       ) applySystem();
       if (JSON.stringify(next.updates) !== JSON.stringify(previous.updates)) s.updater.applySettings(next.updates);
-      // Model switches are unloaded by the services' own queue; status follows in its batch.
-      if (JSON.stringify(next.overlay) !== JSON.stringify(previous.overlay)) s.overlay.sync();
       if (
         JSON.stringify(next.tray) !== JSON.stringify(previous.tray) ||
-        JSON.stringify(next.companion) !== JSON.stringify(previous.companion) ||
-        next.live.shortcut !== previous.live.shortcut ||
-        next.liveWindow.shortcut !== previous.liveWindow.shortcut
+        JSON.stringify(next.companion) !== JSON.stringify(previous.companion)
       ) tray.apply(next);
       send(EVENTS.settingsChanged, next);
     });
@@ -307,26 +223,15 @@ function bootstrap(): void {
       if (event.state === 'missing' || event.state === 'error') s.companion.react('model.missing', 'model-unavailable');
     });
 
-    // Audio devices do not survive a sleep, so a recording in flight is abandoned.
-    powerMonitor.on('suspend', () => {
-      s.dictation.interrupt();
-      s.live.interrupt();
-    });
     powerMonitor.on('resume', () => s.companion.react('system.resume', 'ready'));
     powerMonitor.on('on-battery', () => send(EVENTS.statusChanged));
     powerMonitor.on('on-ac', () => send(EVENTS.statusChanged));
-
-    if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('microphone') === 'not-determined') {
-      await systemPreferences.askForMediaAccess('microphone');
-    }
 
     const startHidden =
       s.settings.get().system.launchMinimized &&
       ((process.platform === 'win32' && process.argv.includes('--start-hidden')) ||
         (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin));
     mainWindow = openWindow(!startHidden);
-    // Only the dictation engine is started eagerly; synthesis starts on first use.
-    void s.stt.start().catch((error: unknown) => console.error(error));
     setTimeout(() => s.readAloud.warm(), 3_000).unref();
     s.updater.start();
   });

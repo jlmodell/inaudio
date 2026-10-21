@@ -2,7 +2,6 @@ import { Check, FolderOpen } from 'lucide-react';
 import { useEffect } from 'react';
 import { Button } from '@renderer/components/ui/button';
 import { Badge, PageHeader, Row, Section } from '@renderer/components/ui/layout';
-import { RadioGroup } from '@renderer/components/ui/radio-group';
 import { Segmented } from '@renderer/components/ui/segmented';
 import { Select } from '@renderer/components/ui/select';
 import { Switch } from '@renderer/components/ui/switch';
@@ -11,12 +10,9 @@ import { useSettings, useSystemStatus, useUpdateActions, useUpdateSettings, useU
 import { useUi, type SettingsCategory } from '@renderer/stores/ui-store';
 import type { Settings } from '@shared/domain/settings';
 import type { ShortcutStatus } from '@shared/domain/system';
-import { LiveWindowSettings } from './live-window-settings';
-import { OverlaySettings } from './overlay-settings';
 import { ReadAloudSettings } from './read-aloud-settings';
 import { CATEGORIES } from './settings-nav';
 import { ShortcutInput } from './shortcut-input';
-import { TranscriptQualitySettings } from './transcript-quality-settings';
 import { TraySettings } from './tray-settings';
 import { UpdateSection } from './update-section';
 import { PrivacySettings } from './privacy-settings';
@@ -132,7 +128,6 @@ export function SettingsPage() {
     return () => cancelAnimationFrame(frame);
   }, [focus, category, settings, status, clearFocus]);
   if (!settings || !status) return null;
-  const { dictation } = settings;
   const cpu = navigator.hardwareConcurrency || 4;
   const page = CATEGORIES[category];
   const show = (id: SettingsCategory) => id === category;
@@ -141,103 +136,9 @@ export function SettingsPage() {
     <div>
       <PageHeader title={page.label} description={page.description} />
       <div className="flex flex-col">
-      {show('dictation') && (
-      <Section id="settings-dictation">
-        <Row
-          label="Recording mode"
-          description="Push to talk records while the shortcut is held; it only works while Inaudio is focused. From other apps the shortcut toggles."
-        >
-          <Segmented<Settings['dictation']['mode']>
-            label="Recording mode"
-            value={dictation.mode}
-            onValueChange={(mode) => update.mutate({ dictation: { mode } })}
-            options={[
-              { value: 'toggle', label: 'Toggle' },
-              { value: 'push-to-talk', label: 'Push to talk' },
-            ]}
-          />
-        </Row>
-        <div className="py-3">
-          <p className="pb-2 text-sm font-medium">When a transcript is ready</p>
-          <RadioGroup<Settings['dictation']['insertMode']>
-            label="Insertion mode"
-            value={dictation.insertMode}
-            onValueChange={(insertMode) => update.mutate({ dictation: { insertMode } })}
-            options={[
-              {
-                value: 'paste',
-                label: 'Type into the focused app',
-                description: status.insertion.available ? `Pastes with ${status.insertion.method}.` : status.insertion.reason,
-                disabled: !status.insertion.available,
-              },
-              { value: 'clipboard', label: 'Copy to clipboard', description: 'Paste it yourself.' },
-              { value: 'none', label: 'Keep it in Inaudio', description: 'Shown on the Dictation page and in History.' },
-            ]}
-          />
-        </div>
-        <Row id="settings-cues" label="Play sound cues" description="A short tone when recording starts and stops.">
-          <Switch
-            aria-label="Play sound cues"
-            checked={dictation.playCues}
-            onCheckedChange={(playCues) => update.mutate({ dictation: { playCues } })}
-          />
-        </Row>
-        <Row label="Restore clipboard" description="Put back what was on the clipboard after typing.">
-          <Switch
-            aria-label="Restore clipboard"
-            checked={dictation.restoreClipboard}
-            disabled={dictation.insertMode !== 'paste'}
-            onCheckedChange={(restoreClipboard) => update.mutate({ dictation: { restoreClipboard } })}
-          />
-        </Row>
-        <Row label="Save history" description="Keep transcripts in a local database on this computer.">
-          <Switch
-            aria-label="Save history"
-            checked={dictation.saveHistory}
-            onCheckedChange={(saveHistory) => update.mutate({ dictation: { saveHistory } })}
-          />
-        </Row>
-      </Section>
-      )}
-
       {show('read-aloud') && (
       <Section id="settings-read-aloud">
         <ReadAloudSettings tts={settings.tts} status={status} onChange={(patch) => update.mutate({ tts: patch })} />
-      </Section>
-      )}
-
-      {show('quality') && (
-      <Section id="settings-quality">
-        <TranscriptQualitySettings
-          live={settings.live}
-          stt={settings.stt}
-          models={status.cleanupModels}
-          onLive={(patch) => update.mutate({ live: patch })}
-          onStt={(patch) => update.mutate({ stt: patch })}
-        />
-      </Section>
-      )}
-
-      {show('overlay') && (
-      <Section id="settings-overlay">
-        <OverlaySettings
-          overlay={settings.overlay}
-          support={status.overlay}
-          platform={status.platform}
-          shortcut={status.shortcuts.overlay}
-          onChange={(patch) => update.mutate({ overlay: patch })}
-        />
-      </Section>
-      )}
-
-      {show('live-window') && (
-      <Section id="settings-live-window">
-        <LiveWindowSettings
-          liveWindow={settings.liveWindow}
-          support={status.overlay}
-          platform={status.platform}
-          onChange={(patch) => update.mutate({ liveWindow: patch })}
-        />
       </Section>
       )}
 
@@ -253,15 +154,6 @@ export function SettingsPage() {
 
       {show('shortcuts') && (
       <Section id="settings-shortcuts">
-        <Row id="settings-shortcut-dictation" label="Dictation" description={SHORTCUT_NOTE[status.shortcuts.dictation] ?? undefined}>
-          <ShortcutInput
-            label="Dictation shortcut"
-            value={dictation.shortcut}
-            platform={status.platform}
-            status={status.shortcuts.dictation}
-            onChange={(shortcut) => update.mutate({ dictation: { shortcut } })}
-          />
-        </Row>
         <Row
           label="Read selection"
           description={SHORTCUT_NOTE[status.shortcuts.readAloud] ?? 'Reads the text selected in any app. Press it again to stop.'}
@@ -302,54 +194,6 @@ export function SettingsPage() {
             onChange={(stopShortcut) => update.mutate({ tts: { stopShortcut } })}
           />
         </Row>
-        <Row id="settings-shortcut-cancel" label="Cancel recording" description="Discards the recording in progress without transcribing it.">
-          <ShortcutInput
-            label="Cancel shortcut"
-            optional
-            value={dictation.cancelShortcut}
-            platform={status.platform}
-            status={status.shortcuts.cancel}
-            onChange={(cancelShortcut) => update.mutate({ dictation: { cancelShortcut } })}
-          />
-        </Row>
-        <Row id="settings-shortcut-overlay" label="Show or hide the overlay" description="Turns the pill on and off without opening Settings.">
-          <ShortcutInput
-            label="Overlay shortcut"
-            optional
-            value={settings.overlay.toggleShortcut}
-            platform={status.platform}
-            status={status.shortcuts.overlay}
-            onChange={(toggleShortcut) => update.mutate({ overlay: { toggleShortcut } })}
-          />
-        </Row>
-        <Row
-          id="settings-shortcut-live"
-          label="Start or stop a live transcript"
-          description={SHORTCUT_NOTE[status.shortcuts.live] ?? 'Records system audio from any app. Off until you set it.'}
-        >
-          <ShortcutInput
-            label="Live transcript shortcut"
-            optional
-            value={settings.live.shortcut}
-            platform={status.platform}
-            status={status.shortcuts.live}
-            onChange={(shortcut) => update.mutate({ live: { shortcut } })}
-          />
-        </Row>
-        <Row
-          id="settings-shortcut-live-window"
-          label="Show or hide the live window"
-          description={SHORTCUT_NOTE[status.shortcuts.liveWindow] ?? 'Off until you set it.'}
-        >
-          <ShortcutInput
-            label="Live window shortcut"
-            optional
-            value={settings.liveWindow.shortcut}
-            platform={status.platform}
-            status={status.shortcuts.liveWindow}
-            onChange={(shortcut) => update.mutate({ liveWindow: { shortcut } })}
-          />
-        </Row>
       </Section>
       )}
 
@@ -359,8 +203,8 @@ export function SettingsPage() {
           <Select
             label="CPU threads"
             className="min-w-28"
-            value={String(settings.stt.threads)}
-            onValueChange={(v) => update.mutate({ stt: { threads: Number(v) } })}
+            value={String(settings.tts.threads)}
+            onValueChange={(v) => update.mutate({ tts: { threads: Number(v) } })}
             options={THREADS.filter((n) => n <= Math.max(cpu, 4)).map((n) => ({ value: String(n), label: String(n) }))}
           />
         </Row>
@@ -372,7 +216,7 @@ export function SettingsPage() {
         <Row
           id="settings-unload"
           label="Unload models when idle"
-          description="Frees memory between sessions. The next recording takes a moment longer to start."
+          description="Frees memory between sessions. The next reading takes a moment longer to start."
         >
           <Switch
             aria-label="Unload models when idle"
@@ -518,18 +362,7 @@ export function SettingsPage() {
             onCheckedChange={(closeToTray) => update.mutate({ system: { closeToTray } })}
           />
         </Row>
-        <Row
-          id="settings-quit-confirmation"
-          label="Confirm before quitting during capture"
-          description="Ask before stopping an active dictation or live transcript from the tray."
-        >
-          <Switch
-            aria-label="Confirm before quitting during capture"
-            checked={settings.system.confirmQuitDuringCapture}
-            onCheckedChange={(confirmQuitDuringCapture) => update.mutate({ system: { confirmQuitDuringCapture } })}
-          />
-        </Row>
-        <Row label="Setup" description="Walk through microphone, models and live transcript setup again.">
+        <Row label="Setup" description="Walk through the voice download again.">
           <Button size="sm" onClick={() => update.mutate({ onboardingComplete: false })}>
             Run setup
           </Button>

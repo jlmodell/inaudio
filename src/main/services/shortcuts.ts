@@ -7,19 +7,13 @@ const REGISTERED: ShortcutStatus = 'registered';
 const UNAVAILABLE: ShortcutStatus = 'unavailable';
 
 const EMPTY: ShortcutState = {
-  dictation: OFF,
   readAloud: OFF,
   readAloudPause: OFF,
   readAloudStop: OFF,
-  cancel: OFF,
-  overlay: OFF,
-  live: OFF,
-  liveWindow: OFF,
 };
 
 /**
- * System-wide shortcuts. Electron reports key-down only, so the global dictation shortcut
- * always toggles; hold-to-talk is handled inside the window.
+ * System-wide shortcuts for Read Aloud. Electron reports key-down only.
  */
 export class ShortcutService {
   private state: ShortcutState = { ...EMPTY };
@@ -27,28 +21,18 @@ export class ShortcutService {
 
   constructor(
     private readonly handlers: {
-      dictation(): void;
       readAloud(): void;
       readAloudPause(): void;
       readAloudStop(): void;
-      cancel(): void;
-      overlay(): void;
-      live(): void;
-      liveWindow(): void;
     },
   ) {}
 
   apply(settings: Settings): ShortcutState {
     this.clear();
     this.state = {
-      dictation: this.register(settings.dictation.shortcut, this.handlers.dictation),
       readAloud: this.register(settings.tts.shortcut, this.handlers.readAloud),
       readAloudPause: this.register(settings.tts.pauseShortcut, this.handlers.readAloudPause),
       readAloudStop: this.register(settings.tts.stopShortcut, this.handlers.readAloudStop),
-      cancel: this.register(settings.dictation.cancelShortcut, this.handlers.cancel),
-      overlay: this.register(settings.overlay.toggleShortcut, this.handlers.overlay),
-      live: this.register(settings.live.shortcut, this.handlers.live),
-      liveWindow: this.register(settings.liveWindow.shortcut, this.handlers.liveWindow),
     };
     return this.state;
   }

@@ -133,7 +133,7 @@
     ${endif}
     !insertmacro INAUDIO_PAGE_BEGIN "" install ${INAUDIO_FRAMES}
     !insertmacro INAUDIO_TEXT 53% 10% "Install ${PRODUCT_NAME} ${VERSION}" $inaudioTitleFont "14161A"
-    !insertmacro INAUDIO_TEXT 64% 18% "Talk instead of typing in any app, and hear text read back. Speech is processed on this computer and never uploaded." $inaudioBodyFont "5B6270"
+    !insertmacro INAUDIO_TEXT 64% 18% "Read selected or typed text aloud on this computer. The voice stays on this machine and is never uploaded." $inaudioBodyFont "5B6270"
     !insertmacro INAUDIO_TEXT 85% 8% "Installs for you only. It takes a few seconds." $inaudioBodyFont "8A919C"
     !insertmacro INAUDIO_PAGE_SHOW "" "&Install"
   FunctionEnd
@@ -145,7 +145,7 @@
 
 !macro customPageAfterChangeDir
   !define MUI_PAGE_HEADER_TEXT "Installing ${PRODUCT_NAME}"
-  !define MUI_PAGE_HEADER_SUBTEXT "Copying the app and its speech cleanup models."
+  !define MUI_PAGE_HEADER_SUBTEXT "Copying the app."
 !macroend
 
 !macro customInstall
@@ -166,7 +166,7 @@
     ${endif}
     !insertmacro INAUDIO_PAGE_BEGIN "" ready ${INAUDIO_FRAMES}
     !insertmacro INAUDIO_TEXT 53% 10% "${PRODUCT_NAME} is ready" $inaudioTitleFont "14161A"
-    !insertmacro INAUDIO_TEXT 64% 18% "Find it in the Start menu. The first time it opens, setup walks you through your microphone and a speech model." $inaudioBodyFont "5B6270"
+    !insertmacro INAUDIO_TEXT 64% 18% "Find it in the Start menu. The first time it opens, setup walks you through the Kokoro voice." $inaudioBodyFont "5B6270"
     ${NSD_CreateCheckbox} 7% 84% 86% 9% "&Open ${PRODUCT_NAME} now"
     Pop $inaudioOpenBox
     SetCtlColors $inaudioOpenBox "14161A" "FFFFFF"
@@ -199,8 +199,8 @@
     StrCpy $inaudioDeleteData ${BST_UNCHECKED}
     !insertmacro INAUDIO_PAGE_BEGIN "un." remove ${INAUDIO_FRAMES}
     !insertmacro INAUDIO_TEXT 53% 10% "Remove ${PRODUCT_NAME}?" $inaudioTitleFont "14161A"
-    !insertmacro INAUDIO_TEXT 64% 18% "The app and its shortcuts are removed. Your history, settings and speech models stay, so a reinstall picks up where you left off." $inaudioBodyFont "5B6270"
-    ${NSD_CreateCheckbox} 7% 84% 86% 9% "Also &delete my history, settings and speech models"
+    !insertmacro INAUDIO_TEXT 64% 18% "The app and its shortcuts are removed. Your settings and voice stay, so a reinstall picks up where you left off." $inaudioBodyFont "5B6270"
+    ${NSD_CreateCheckbox} 7% 84% 86% 9% "Also &delete my settings and voice"
     Pop $inaudioDeleteBox
     SetCtlColors $inaudioDeleteBox "14161A" "FFFFFF"
     SendMessage $inaudioDeleteBox ${WM_SETFONT} $inaudioBodyFont 1
@@ -241,9 +241,9 @@
     !insertmacro INAUDIO_PAGE_BEGIN "un." removed 1
     !insertmacro INAUDIO_TEXT 53% 10% "${PRODUCT_NAME} was removed" $inaudioTitleFont "14161A"
     ${if} $inaudioDeleteData == ${BST_CHECKED}
-      !insertmacro INAUDIO_TEXT 64% 18% "Your history, settings and speech models were deleted too." $inaudioBodyFont "5B6270"
+      !insertmacro INAUDIO_TEXT 64% 18% "Your settings and voice were deleted too." $inaudioBodyFont "5B6270"
     ${else}
-      !insertmacro INAUDIO_TEXT 64% 18% "Your history, settings and speech models are still in your profile folder. Installing ${PRODUCT_NAME} again brings them back." $inaudioBodyFont "5B6270"
+      !insertmacro INAUDIO_TEXT 64% 18% "Your settings and voice are still in your profile folder. Installing ${PRODUCT_NAME} again brings them back." $inaudioBodyFont "5B6270"
     ${endif}
     !insertmacro INAUDIO_LAST_PAGE_BUTTONS
     !insertmacro INAUDIO_PAGE_SHOW "un." "&Close"

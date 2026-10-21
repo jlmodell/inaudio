@@ -27,7 +27,7 @@ export function useReadingState(id: string): 'idle' | 'reading' | 'paused' {
 
 /**
  * Reads a piece of saved text aloud, or pauses and resumes it while it is the one being read.
- * Used on History rows, in the transcript drawer and on the Dictation page's recent takes.
+ * Used wherever a block of text should be readable aloud from the page.
  */
 export function ReadAloudButton({
   id,

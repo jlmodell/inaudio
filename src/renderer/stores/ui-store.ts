@@ -1,18 +1,14 @@
 import { create } from 'zustand';
 
-export const ROUTES = ['dictation', 'live', 'history', 'read-aloud', 'models', 'audio', 'companion', 'settings'] as const;
+export const ROUTES = ['read-aloud', 'models', 'companion', 'settings'] as const;
 export type Route = (typeof ROUTES)[number];
 
 /** The pages of Settings, each listed in its own sidebar. */
 export const SETTINGS_CATEGORIES = [
   'appearance',
   'app',
-  'dictation',
-  'quality',
   'read-aloud',
   'shortcuts',
-  'overlay',
-  'live-window',
   'tray',
   'performance',
   'updates',
@@ -32,9 +28,6 @@ interface UiState {
   /** A setting to scroll to once its page has rendered, then cleared. */
   settingsFocus: string | null;
   clearSettingsFocus(): void;
-  /** The transcript open in the History drawer: an id, the newest one, or none. */
-  transcript: string | 'latest' | null;
-  openTranscript(id: string | 'latest' | null): void;
   /** The what's-new billboard and the full release notes drawer. */
   whatsNew: boolean;
   setWhatsNew(open: boolean): void;
@@ -43,13 +36,13 @@ interface UiState {
 }
 
 export const useUi = create<UiState>((set, get) => ({
-  route: 'dictation',
+  route: 'read-aloud',
   navigate: (route) => {
     const current = get().route;
     if (route === current) return;
     set({ route, previousRoute: current === 'settings' ? get().previousRoute : current });
   },
-  previousRoute: 'dictation',
+  previousRoute: 'read-aloud',
   settingsCategory: 'appearance',
   openSettings: (category, focus) => {
     get().navigate('settings');
@@ -57,8 +50,6 @@ export const useUi = create<UiState>((set, get) => ({
   },
   settingsFocus: null,
   clearSettingsFocus: () => set({ settingsFocus: null }),
-  transcript: null,
-  openTranscript: (transcript) => set({ transcript }),
   whatsNew: false,
   setWhatsNew: (whatsNew) => set({ whatsNew }),
   releaseNotes: false,

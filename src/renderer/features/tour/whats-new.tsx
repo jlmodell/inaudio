@@ -5,10 +5,8 @@ import { Billboard } from '@renderer/components/ui/billboard';
 import { Button } from '@renderer/components/ui/button';
 import { Drawer } from '@renderer/components/ui/drawer';
 import { Badge, Notice } from '@renderer/components/ui/layout';
-import { useLive } from '@renderer/features/live/live-store';
 import { api } from '@renderer/lib/api';
 import { useReleaseNotes, useSettings, useSystemStatus, useUpdateSettings, useUpdateStatus } from '@renderer/lib/queries';
-import { useDictation } from '@renderer/stores/dictation-store';
 import { useUi } from '@renderer/stores/ui-store';
 import { WhatsNewScene } from './hero-scenes';
 
@@ -139,10 +137,10 @@ function LoadingLines() {
 }
 
 /**
- * The what's-new billboard: once after an update, at a quiet moment, never over dictation or
- * a live transcript. What it lists comes from GitHub as it opens: what changed since the version
- * last seen. Closing it remembers the version; "Don't show after updates" turns it off, and the
- * setting brings it back. It can always be opened from the sidebar.
+ * The what's-new billboard: once after an update, at a quiet moment, never while
+ * Read Aloud is speaking. What it lists comes from GitHub as it opens: what changed since
+ * the version last seen. Closing it remembers the version; "Don't show after updates"
+ * turns it off, and the setting brings it back. It can always be opened from the sidebar.
  */
 export function WhatsNewBillboard() {
   const open = useUi((s) => s.whatsNew);
@@ -254,13 +252,11 @@ export function WhatsNewBillboard() {
   );
 }
 
-/** Opens the billboard once per new version, after the app has settled and nothing records. */
+/** Opens the billboard once per new version, after the app has settled. */
 export function useWhatsNewAfterUpdate(): void {
   const { data: settings } = useSettings();
   const { data: status } = useSystemStatus();
   const setOpen = useUi((s) => s.setWhatsNew);
-  const dictating = useDictation((s) => s.phase !== 'idle' && s.phase !== 'error');
-  const live = useLive((s) => s.live.phase !== 'idle' && s.live.phase !== 'error');
   const shown = useRef(false);
   const due =
     !!settings?.onboardingComplete &&
@@ -268,12 +264,11 @@ export function useWhatsNewAfterUpdate(): void {
     !!status?.appVersion &&
     settings.announcements.seenVersion !== status.appVersion;
   useEffect(() => {
-    if (!due || shown.current || dictating || live) return;
-    // A short pause after launch, so the app is on screen before anything asks for attention.
+    if (!due || shown.current) return;
     const timer = setTimeout(() => {
       shown.current = true;
       setOpen(true);
     }, 1_500);
     return () => clearTimeout(timer);
-  }, [due, dictating, live, setOpen]);
+  }, [due, setOpen]);
 }

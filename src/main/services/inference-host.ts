@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { utilityProcess, type UtilityProcess } from 'electron';
 import type { WorkerHealth } from '@shared/domain/system';
-import type { PingResult, SttCleanup, SttResult, TtsResult, WorkerMessage, WorkerRequest } from '@shared/worker/protocol';
+import type { PingResult, TtsResult, WorkerMessage, WorkerRequest } from '@shared/worker/protocol';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 type RequestInput = DistributiveOmit<WorkerRequest, 'id'>;
@@ -12,8 +12,7 @@ interface Pending {
   timer: NodeJS.Timeout;
 }
 const TIMEOUTS: Record<RequestInput['type'], number> = {
-  'stt:load': 120_000, 'stt:transcribe': 180_000,
-  'tts:load': 120_000, 'tts:speak': 180_000, 'text:punct': 30_000, unload: 10_000, ping: 5_000,
+  'tts:load': 120_000, 'tts:speak': 180_000, unload: 10_000, ping: 5_000,
 };
 const MAX_RESTARTS = 5;
 
@@ -24,7 +23,7 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
   private readonly pending = new Map<number, Pending>();
   private ready: Promise<void> | null = null;
   private health: WorkerHealth = { state: 'stopped', restarts: 0 };
-  private loaded: { stt?: string; tts?: string } = {};
+  private loadedTts?: string;
   private restartTimer: NodeJS.Timeout | undefined;
   private termination: Promise<void> | null = null;
   private rejectBoot: ((error: Error) => void) | null = null;
@@ -34,9 +33,9 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     private readonly entry: string = path.join(__dirname, 'inference-worker.js'),
   ) { super(); }
   getHealth(): WorkerHealth {
-    return { ...this.health, loadedStt: this.loaded.stt, loadedTts: this.loaded.tts };
+    return { ...this.health, loadedTts: this.loadedTts };
   }
-  isLoaded(modelId: string): boolean { return this.loaded.stt === modelId || this.loaded.tts === modelId; }
+  isLoaded(modelId: string): boolean { return this.loadedTts === modelId; }
 
   start(): Promise<void> {
     if (this.termination) return this.termination.then(() => this.start());
@@ -74,7 +73,6 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pending.delete(message.id);
-        // The caller gets its result before health listeners run.
         if (message.ok) pending.resolve(message.result);
         else pending.reject(new Error(message.error));
         if (!this.pending.size) this.setHealth({ state: 'ready' });
@@ -96,33 +94,18 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     this.setHealth({ state: 'stopped', pid: undefined });
   }
 
-  async loadStt(input: Extract<RequestInput, { type: 'stt:load' }>): Promise<void> {
-    if (this.loaded.stt === input.modelId) return;
-    delete this.loaded.stt;
-    await this.request(input);
-    this.loaded.stt = input.modelId;
-    this.emit('health', this.getHealth());
-  }
   async loadTts(input: Extract<RequestInput, { type: 'tts:load' }>): Promise<void> {
-    if (this.loaded.tts === input.modelId) return;
-    delete this.loaded.tts;
+    if (this.loadedTts === input.modelId) return;
+    this.loadedTts = undefined;
     await this.request(input);
-    this.loaded.tts = input.modelId;
+    this.loadedTts = input.modelId;
     this.emit('health', this.getHealth());
-  }
-  transcribe(samples: Float32Array, sampleRate: number, cleanup?: SttCleanup): Promise<SttResult> {
-    return this.request({ type: 'stt:transcribe', samples, sampleRate, cleanup }) as Promise<SttResult>;
-  }
-  /** Re-punctuates text with the bundled English model. Never needs a speech model loaded. */
-  punctuate(text: string, model: string, vocab: string): Promise<string> {
-    return this.request({ type: 'text:punct', text, model, vocab }) as Promise<string>;
   }
   speak(text: string, sid: number, speed: number): Promise<TtsResult> {
     return this.request({ type: 'tts:speak', text, sid, speed }) as Promise<TtsResult>;
   }
-  async unload(kind: 'stt' | 'tts' | 'all'): Promise<void> {
-    if (kind !== 'all' && !this.loaded[kind]) return;
-    // The addon exposes finalizer-owned handles. Process exit guarantees native memory release.
+  async unload(): Promise<void> {
+    if (!this.loadedTts) return;
     await this.stop();
   }
   ping(): Promise<PingResult> { return this.request({ type: 'ping' }) as Promise<PingResult>; }
@@ -137,7 +120,6 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
       this.pending.set(id, { resolve, reject, timer });
       try { child.postMessage({ ...input, id } as WorkerRequest); }
       catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); return; }
-      // Health listeners run only after the work is already on its way to the worker.
       if (input.type !== 'ping') this.setHealth({ state: 'busy' });
     });
   }
@@ -147,7 +129,7 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     const child = this.child;
     this.child = null;
     this.ready = null;
-    this.loaded = {};
+    this.loadedTts = undefined;
     this.rejectBoot?.(error);
     this.rejectBoot = null;
     for (const pending of this.pending.values()) {
@@ -158,7 +140,6 @@ export class InferenceHost extends EventEmitter<{ health: [WorkerHealth] }> {
     if (!child) return Promise.resolve();
     this.termination = new Promise<void>((resolve) => {
       child.once('exit', () => resolve());
-      // An exit callback may already be executing.
       if (!child.kill()) resolve();
     }).finally(() => { this.termination = null; });
     return this.termination;

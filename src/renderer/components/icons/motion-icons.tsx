@@ -71,37 +71,6 @@ const nudge = (axis: 'x' | 'y', path: number[], delay = 0, duration = 0.6): Vari
     : { normal: { y: 0 }, animate: { y: path, transition: { duration, ease: 'easeInOut', delay } } };
 const origin = (x: number, y: number) => ({ transformBox: 'view-box' as const, originX: `${x}px`, originY: `${y}px` });
 
-export const MicMotion = createMotionIcon(
-  'MicMotion',
-  <>
-    <motion.rect x="9" y="2" width="6" height="13" rx="3" variants={pulse([1, 1.1, 0.96, 1])} style={origin(12, 8.5)} />
-    <motion.g variants={pulse([1, 1.06, 0.97, 1], 0.1)} style={origin(12, 10)}>
-      <path d="M12 19v3" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-    </motion.g>
-  </>,
-);
-
-const word = (length: number, delay: number): Variants => ({
-  normal: { strokeDashoffset: 0, opacity: 1 },
-  animate: {
-    strokeDashoffset: [length, 0],
-    opacity: [0, 1],
-    transition: { strokeDashoffset: { duration: 0.3, ease: 'easeOut', delay }, opacity: { duration: 0.25, delay } },
-  },
-});
-
-export const CaptionsMotion = createMotionIcon(
-  'CaptionsMotion',
-  <>
-    <rect width="18" height="14" x="3" y="5" rx="2" ry="2" />
-    <motion.path d="M7 11h2" strokeDasharray="2" variants={word(2, 0.05)} />
-    <motion.path d="M13 11h4" strokeDasharray="4" variants={word(4, 0.17)} />
-    <motion.path d="M7 15h4" strokeDasharray="4" variants={word(4, 0.32)} />
-    <motion.path d="M15 15h2" strokeDasharray="2" variants={word(2, 0.44)} />
-  </>,
-);
-
 export const Volume2Motion = createMotionIcon(
   'Volume2Motion',
   <>
@@ -112,29 +81,6 @@ export const Volume2Motion = createMotionIcon(
     />
     <motion.path d="M16 9a5 5 0 0 1 0 6" variants={nudge('x', [0, 1.5, -0.4, 0], 0.1)} />
     <motion.path d="M19.364 18.364a9 9 0 0 0 0-12.728" variants={nudge('x', [0, 0.9, -0.3, 0], 0.2)} />
-  </>,
-);
-
-export const HistoryMotion = createMotionIcon(
-  'HistoryMotion',
-  <>
-    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-    <motion.path
-      d="M3 3v5h5"
-      variants={{
-        normal: { x: 0, y: 0 },
-        animate: { x: [0, -1.5, 0.5, 0], y: [0, -1.5, 0.5, 0], transition: settle },
-      }}
-    />
-    <motion.path
-      d="M12 7v5"
-      variants={{
-        normal: { rotate: 0, transition: { duration: 0 } },
-        animate: { rotate: [0, -360], transition: { duration: 0.9, ease: 'easeInOut' } },
-      }}
-      style={origin(12, 12)}
-    />
-    <path d="M12 12l4 2" />
   </>,
 );
 
@@ -166,23 +112,6 @@ export const BoxesMotion = createMotionIcon(
     </motion.g>
   </>,
   { normal: { scale: 1 }, animate: { scale: [1, 1.04, 1], transition: { duration: 0.6, ease: 'easeInOut' } } },
-);
-
-const bar = (scale: number, delay: number): Variants => ({
-  normal: { scaleY: 1 },
-  animate: { scaleY: [1, scale, 1], transition: { duration: 0.6, ease: 'easeInOut', delay } },
-});
-
-export const AudioLinesMotion = createMotionIcon(
-  'AudioLinesMotion',
-  <>
-    <motion.path d="M2 10v3" variants={bar(2.4, 0)} style={origin(2, 11.5)} />
-    <motion.path d="M6 6v11" variants={bar(0.55, 0.05)} style={origin(6, 11.5)} />
-    <motion.path d="M10 3v18" variants={bar(0.55, 0.1)} style={origin(10, 12)} />
-    <motion.path d="M14 8v7" variants={bar(1.7, 0.15)} style={origin(14, 11.5)} />
-    <motion.path d="M18 5v13" variants={bar(0.6, 0.2)} style={origin(18, 11.5)} />
-    <motion.path d="M22 10v3" variants={bar(2.4, 0.25)} style={origin(22, 11.5)} />
-  </>,
 );
 
 export const SparklesMotion = createMotionIcon(

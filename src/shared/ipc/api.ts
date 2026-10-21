@@ -1,22 +1,8 @@
-import type { LiveChunk, LiveCommand, LivePreview, LiveReport, LiveStartInput, LiveState } from '../domain/capture';
-import type { ExportFormat, HistoryKind, HistoryPage, HistoryQuery, HistoryUpdate, Transcript } from '../domain/history';
 import type { ModelId, ModelStatus, VoiceId } from '../domain/models';
 import type { Settings, SettingsPatch } from '../domain/settings';
-import type {
-  AppMenuCommand,
-  AppCommand,
-  AudioDevice,
-  DictationState,
-  LiveWindowAction,
-  LiveWindowState,
-  ModelProgressEvent,
-  OverlayAction,
-  OverlayState,
-  SystemStatus,
-  WindowAction,
-} from '../domain/system';
+import type { AppMenuCommand, AppCommand, ModelProgressEvent, SystemStatus, WindowAction } from '../domain/system';
 import type { ExternalLinkId } from './schemas';
-import type { CompanionGaze, CompanionId, CompanionSnapshot } from '../domain/companion';
+import type { CompanionId, CompanionSnapshot } from '../domain/companion';
 import type { ReleaseNotesResult, UpdateStatus } from '../domain/update';
 import type {
   ReadAloudChunk,
@@ -26,13 +12,6 @@ import type {
   ReadAloudStart,
   ReadAloudState,
 } from '../domain/read-aloud';
-
-export interface TranscribeResult {
-  transcript: Transcript | null;
-  text: string;
-  inserted: boolean;
-  insertError?: string;
-}
 
 export interface SpeakResult {
   samples: Float32Array;
@@ -79,59 +58,7 @@ export interface InaudioApi {
     verify(id: ModelId): Promise<void>;
     reveal(id: ModelId): Promise<void>;
   };
-  dictation: {
-    transcribe(samples: Float32Array, options: { insert: boolean }): Promise<TranscribeResult>;
-    /** Reports capture state to the main process, which owns the authoritative phase. */
-    report(state: DictationState): void;
-  };
-  audio: {
-    /**
-     * Reports the devices this window can currently see. Only the main process can show
-     * them in a native menu, and it treats the list as the allowed set of input ids.
-     */
-    report(devices: AudioDevice[]): void;
-  };
-  live: {
-    /** The current session, for a window that opens after it started. */
-    get(): Promise<LiveState>;
-    /** Asks the main process to start a session; it arms the capture grant and commands this window. */
-    start(input: LiveStartInput): Promise<void>;
-    stop(): Promise<void>;
-    /** Ends the session without saving anything. */
-    cancel(): Promise<void>;
-    /** One chunk of 16 kHz mono audio; resolves once it is transcribed. */
-    chunk(chunk: LiveChunk): Promise<void>;
-    /** The capturing window reporting what it is actually doing. */
-    report(report: LiveReport): void;
-    /**
-     * The unfinished stretch, for the provisional line. Resolves at once when the engine is
-     * busy; the main process decides whether it is worth decoding.
-     */
-    preview(preview: LivePreview): Promise<void>;
-    /** Shows the floating live window. App window only. */
-    openWindow(): Promise<void>;
-  };
-  liveWindow: {
-    /** Floating live window only: one of a fixed set of commands. It never sends text. */
-    act(action: LiveWindowAction): Promise<void>;
-    /** An edge or corner is being dragged: pointer position in screen DIPs. */
-    resize(phase: 'start' | 'move' | 'end', edge: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw', x: number, y: number): void;
-  };
-  overlay: {
-    /** Asks the main process to run one of a fixed set of overlay commands. */
-    act(action: OverlayAction): Promise<void>;
-    /** Tells the main process the pointer entered or left the overlay. */
-    hover(hovering: boolean): void;
-    /**
-     * Tells the main process a popover or dropdown opened or closed, so it can grant the
-     * window the room the menu needs. The overlay does not resize itself.
-     */
-    menu(open: boolean): void;
-    /** The pill is being dragged by its handle: pointer position in screen DIPs. */
-    drag(phase: 'start' | 'move' | 'end', x: number, y: number): void;
-  };
   text: {
-    insert(text: string): Promise<void>;
     copy(text: string): Promise<void>;
   };
   tts: {
@@ -146,18 +73,6 @@ export interface InaudioApi {
     /** The player reporting a finished segment or a playback failure. */
     report(report: ReadAloudReport): void;
   };
-  history: {
-    list(query: HistoryQuery): Promise<HistoryPage>;
-    remove(id: string): Promise<void>;
-    clear(): Promise<void>;
-    /** Renames or pins a transcript. Returns it as saved, or null when it no longer exists. */
-    update(id: string, patch: HistoryUpdate): Promise<Transcript | null>;
-    /**
-     * Writes transcripts to a file the user picks in the native save dialog: the given ids,
-     * or every transcript of a view. Resolves with how many were written, 0 when cancelled.
-     */
-    export(input: { ids?: string[]; kind?: HistoryKind; format: ExportFormat }): Promise<number>;
-  };
   companions: {
     get(): Promise<CompanionSnapshot>;
     select(id: CompanionId): Promise<CompanionSnapshot>;
@@ -170,21 +85,10 @@ export interface InaudioApi {
     onModelProgress(listener: (event: ModelProgressEvent) => void): Unsubscribe;
     onStatusChanged(listener: () => void): Unsubscribe;
     onSettingsChanged(listener: (settings: Settings) => void): Unsubscribe;
-    onOverlayState(listener: (state: OverlayState) => void): Unsubscribe;
     onCompanionState(listener: (snapshot: CompanionSnapshot) => void): Unsubscribe;
-    /** Companion window only: where its eyes should look. */
-    onCompanionGaze(listener: (gaze: CompanionGaze) => void): Unsubscribe;
     onUpdateState(listener: (status: UpdateStatus) => void): Unsubscribe;
     onReadAloudSession(listener: (session: ReadAloudSession) => void): Unsubscribe;
     onReadAloudState(listener: (state: ReadAloudState) => void): Unsubscribe;
     onReadAloudChunk(listener: (chunk: ReadAloudChunk) => void): Unsubscribe;
-    onLiveState(listener: (state: LiveState) => void): Unsubscribe;
-    onLiveCommand(listener: (command: LiveCommand) => void): Unsubscribe;
-    /** Floating live window only: everything it draws. */
-    onLiveWindowState(listener: (state: LiveWindowState) => void): Unsubscribe;
-    /** A transcript was saved, changed or deleted, so lists should refetch. */
-    onHistoryChanged(listener: () => void): Unsubscribe;
-    /** Floating live window only: the input level, about ten times a second while recording. */
-    onLiveWindowLevel(listener: (level: number) => void): Unsubscribe;
   };
 }

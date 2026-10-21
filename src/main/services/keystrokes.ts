@@ -41,20 +41,13 @@ const MACOS_COPY = [
 ].join('\n');
 
 /**
- * Fixed executables with fixed arguments for a paste or a copy in the focused app. Text never
+ * Fixed executables with fixed arguments for a copy in the focused app. Text never
  * reaches a command line; it only travels through the clipboard.
  */
-export function resolveKeyCommand(key: 'paste' | 'copy'): KeyCommand | null {
-  const letter = key === 'paste' ? 'v' : 'c';
+export function resolveKeyCommand(): KeyCommand | null {
   switch (process.platform) {
     case 'darwin':
-      return key === 'paste'
-        ? {
-            file: '/usr/bin/osascript',
-            args: ['-e', 'tell application "System Events" to keystroke "v" using command down'],
-            method: 'System Events (osascript)',
-          }
-        : { file: '/usr/bin/osascript', args: ['-l', 'JavaScript', '-e', MACOS_COPY], method: 'System Events (osascript)' };
+      return { file: '/usr/bin/osascript', args: ['-l', 'JavaScript', '-e', MACOS_COPY], method: 'System Events (osascript)' };
     case 'win32':
       return {
         file: windowsPowerShell(),
@@ -62,24 +55,21 @@ export function resolveKeyCommand(key: 'paste' | 'copy'): KeyCommand | null {
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          key === 'paste'
-            ? "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"
-            : `${WINDOWS_WAIT_FOR_MODIFIERS}\nAdd-Type -AssemblyName System.Windows.Forms; Wait-Modifiers; [System.Windows.Forms.SendKeys]::SendWait('^c')`,
+          `${WINDOWS_WAIT_FOR_MODIFIERS}\nAdd-Type -AssemblyName System.Windows.Forms; Wait-Modifiers; [System.Windows.Forms.SendKeys]::SendWait('^c')`,
         ],
         method: 'SendKeys (PowerShell)',
       };
     default: {
       if (process.env.WAYLAND_DISPLAY) {
         const wtype = findOnPath('wtype');
-        if (wtype) return { file: wtype, args: ['-M', 'ctrl', letter, '-m', 'ctrl'], method: 'wtype' };
+        if (wtype) return { file: wtype, args: ['-M', 'ctrl', 'c', '-m', 'ctrl'], method: 'wtype' };
         const ydotool = findOnPath('ydotool');
-        // Linux input event codes: 29 is left Ctrl, 47 is V and 46 is C.
-        const code = key === 'paste' ? '47' : '46';
-        if (ydotool) return { file: ydotool, args: ['key', '29:1', `${code}:1`, `${code}:0`, '29:0'], method: 'ydotool' };
+        // Linux input event codes: 29 is left Ctrl, 46 is C.
+        if (ydotool) return { file: ydotool, args: ['key', '29:1', '46:1', '46:0', '29:0'], method: 'ydotool' };
       }
       const xdotool = findOnPath('xdotool');
       if (xdotool) {
-        return { file: xdotool, args: ['key', '--clearmodifiers', `ctrl+${letter}`], method: 'xdotool' };
+        return { file: xdotool, args: ['key', '--clearmodifiers', 'ctrl+c'], method: 'xdotool' };
       }
       return null;
     }

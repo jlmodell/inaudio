@@ -2,8 +2,6 @@ import { z } from 'zod';
 
 export const COMPANION_STATES = [
   'idle',
-  'listening',
-  'transcribing',
   'speaking',
   'thinking',
   'ready',
@@ -15,9 +13,6 @@ export const COMPANION_STATES = [
 export type CompanionState = (typeof COMPANION_STATES)[number];
 
 export const COMPANION_EVENTS = [
-  'dictation.started',
-  'dictation.stopped',
-  'transcription.completed',
   'tts.started',
   'tts.completed',
   'model.loading',
@@ -35,8 +30,6 @@ export const companionPositionSchema = z.enum([
   'top-right',
   'bottom-left',
   'bottom-right',
-  'near-microphone',
-  'focus-area',
 ]);
 export type CompanionPosition = z.infer<typeof companionPositionSchema>;
 export const companionMotionSchema = z.enum(['full', 'reduced', 'off']);
@@ -63,10 +56,10 @@ export interface CompanionDefinition {
 }
 
 export const COMPANIONS: readonly CompanionDefinition[] = [
-  { id: 'lumen', displayName: 'Lumen', description: 'Round and steady. Stays close while you talk.', seed: 'lumen', shape: 0.11, hue: 215 },
+  { id: 'lumen', displayName: 'Lumen', description: 'Round and steady. Stays close while you read.', seed: 'lumen', shape: 0.11, hue: 215 },
   { id: 'moss', displayName: 'Moss', description: 'A lopsided pebble for quiet focus.', seed: 'moss', shape: 0.35, hue: 145 },
   { id: 'alain', displayName: 'Alain', description: 'Boxy and a little stubborn about getting every word.', seed: 'alain00', shape: 0.54 },
-  { id: 'bean', displayName: 'Bean', description: 'A capsule that perks up when you start speaking.', seed: 'bean', shape: 0.65, hue: 28 },
+  { id: 'bean', displayName: 'Bean', description: 'A capsule that perks up when reading starts.', seed: 'bean', shape: 0.65, hue: 28 },
   { id: 'nimbus', displayName: 'Nimbus', description: 'A soft cloud that drifts above your work.', seed: 'nimbus', shape: 0.825, hue: 200 },
   { id: 'drip', displayName: 'Drip', description: 'A droplet that watches each line land.', seed: 'drip', shape: 0.8875, hue: 185 },
   { id: 'nova', displayName: 'Nova', description: 'A hexagon that notices every change.', seed: 'nova', shape: 0.9325, hue: 265 },
@@ -82,14 +75,9 @@ export interface CompanionSnapshot {
   state: CompanionState;
   event?: CompanionEvent;
   revision: number;
-  /** A recording or its transcription is in flight; spoken lines wait until it ends. */
-  dictating: boolean;
 }
 
-export function companionBubbleText(state: CompanionState, focusArea = false): string {
-  if (focusArea && state === 'transcribing') return 'I’m writing…';
-  if (state === 'listening') return 'Listening…';
-  if (state === 'transcribing') return 'Transcribing…';
+export function companionBubbleText(state: CompanionState): string {
   if (state === 'speaking') return 'Speaking…';
   if (state === 'thinking') return 'Thinking…';
   if (state === 'error') return 'Needs attention';

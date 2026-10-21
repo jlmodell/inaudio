@@ -1,7 +1,6 @@
 import type { Settings } from '@shared/domain/settings';
 import type { SystemStatus } from '@shared/domain/system';
 import { Notice, Row } from '@renderer/components/ui/layout';
-import { Segmented } from '@renderer/components/ui/segmented';
 import { Switch } from '@renderer/components/ui/switch';
 
 export interface TraySettingsProps {
@@ -19,7 +18,7 @@ export function TraySettings({ tray, status, onChange }: TraySettingsProps) {
       {!status.notificationsSupported && (
         <div className="py-3">
           <Notice tone="neutral">
-            This system has no notification service, so Inaudio reports recording state through
+            This system has no notification service, so Inaudio reports reading state through
             the tray icon only.
           </Notice>
         </div>
@@ -35,7 +34,7 @@ export function TraySettings({ tray, status, onChange }: TraySettingsProps) {
 
       <Row
         label="Icon reflects state"
-        description="The icon changes while recording and transcribing, so the overlay is not the only sign."
+        description="The icon changes while Inaudio is reading aloud."
       >
         <Switch
           aria-label="Icon reflects state"
@@ -45,36 +44,11 @@ export function TraySettings({ tray, status, onChange }: TraySettingsProps) {
         />
       </Row>
 
-      <Row label="Left click" description="What clicking the tray icon does.">
-        <Segmented<Settings['tray']['leftClick']>
-          label="Tray left click"
-          value={tray.leftClick}
-          disabled={off}
-          onValueChange={(leftClick) => onChange({ leftClick })}
-          options={[
-            { value: 'window', label: 'Open window' },
-            { value: 'dictate', label: 'Start dictation' },
-          ]}
-        />
-      </Row>
-
-      <Row
-        label="Microphones in the menu"
-        description="Right-clicking the tray icon lists input devices. Off leaves current settings only."
-      >
-        <Switch
-          aria-label="Microphones in the tray menu"
-          checked={tray.showMicrophones}
-          disabled={off}
-          onCheckedChange={(showMicrophones) => onChange({ showMicrophones })}
-        />
-      </Row>
-
       <Row
         label="Notify instead"
         description={
           status.notificationsSupported
-            ? 'Send a system notification when a recording starts and when a transcript is ready.'
+            ? 'Send a system notification when Read Aloud cannot start.'
             : 'This system has no notification service.'
         }
       >

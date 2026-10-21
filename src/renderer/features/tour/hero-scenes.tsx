@@ -1,4 +1,3 @@
-import { Captions, Mic, PictureInPicture2 } from 'lucide-react';
 import { LogoMark } from '@renderer/components/brand/logo';
 
 /**
@@ -52,18 +51,6 @@ export function WelcomeScene() {
   );
 }
 
-export function MicrophoneScene() {
-  return (
-    <span className="absolute inset-0 grid place-items-center">
-      <span className="hero-ring absolute size-24 rounded-full border-2 border-accent/40" />
-      <span className="hero-ring absolute size-24 rounded-full border-2 border-accent/40" style={{ animationDelay: '0.9s' }} />
-      <span className="relative grid size-20 place-items-center rounded-full bg-accent text-on-accent shadow-[0_12px_30px_rgb(47_91_234/0.35)]">
-        <Mic className="size-8" />
-      </span>
-    </span>
-  );
-}
-
 export function ModelsScene() {
   return (
     <span className="absolute inset-0">
@@ -86,46 +73,6 @@ export function ModelsScene() {
   );
 }
 
-export function LiveScene() {
-  return (
-    <span className="absolute inset-0">
-      <Window className="hero-float top-8 left-1/2 w-[300px] -translate-x-1/2">
-        <span className="flex h-[30px] items-center gap-2 border-b border-line px-3">
-          <span className="hero-dot size-[7px] rounded-full bg-record" />
-          <span className="block h-1.5 w-16 rounded-full bg-line-strong" />
-          <span className="ml-auto flex h-3 items-end gap-0.5">
-            {[0, 1, 2, 3].map((index) => (
-              <span key={index} className="hero-bar block w-[3px] rounded-[1px] bg-record" style={{ animationDelay: `${index * 120}ms` }} />
-            ))}
-          </span>
-        </span>
-        <Lines widths={['92%', '80%', '55%']} faintLast />
-      </Window>
-      <Bars className="absolute bottom-6 left-12 opacity-50" count={5} />
-      <span className="absolute right-12 bottom-8 grid size-9 place-items-center rounded-full bg-surface text-accent shadow-sm">
-        <Captions className="size-4" />
-      </span>
-    </span>
-  );
-}
-
-export function OverlayScene() {
-  return (
-    <span className="absolute inset-0">
-      <span className="absolute inset-x-10 top-7 bottom-0 rounded-t-[10px] border border-line bg-surface/70" />
-      <span className="hero-rise absolute bottom-8 left-1/2 flex h-10 -translate-x-1/2 items-center gap-2.5 rounded-full border border-line bg-surface px-4 shadow-[0_8px_22px_rgb(0_0_0/0.16)]">
-        <span className="hero-dot size-2 rounded-full bg-record" />
-        <span className="text-[12px] font-medium text-ink">Listening</span>
-        <span className="flex h-3.5 items-end gap-0.5">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <span key={index} className="hero-bar block w-[3px] rounded-[1px] bg-record" style={{ animationDelay: `${index * 100}ms` }} />
-          ))}
-        </span>
-      </span>
-    </span>
-  );
-}
-
 export function WhatsNewScene() {
   return (
     <span className="absolute inset-0">
@@ -133,12 +80,8 @@ export function WhatsNewScene() {
         <Lines widths={['60%', '90%', '75%']} />
         <span className="mx-3.5 mb-3.5 block h-5 w-2/5 rounded-[6px] bg-accent" />
       </Window>
-      <Window className="hero-float-late top-16 right-14 w-[200px] rounded-[6px]">
-        <span className="flex h-[26px] items-center gap-1.5 border-b border-line px-2.5">
-          <span className="hero-dot size-[6px] rounded-full bg-record" />
-          <PictureInPicture2 className="size-3 text-faint" />
-        </span>
-        <Lines widths={['90%', '60%']} faintLast />
+      <Window className="hero-float-late top-16 right-14 w-[200px]">
+        <Lines widths={['90%', '70%', '40%']} faintLast />
       </Window>
     </span>
   );

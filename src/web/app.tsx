@@ -1,19 +1,17 @@
 import { useEffect, useState } from 'react';
 import { LogoMark } from '@renderer/components/brand/logo';
 import { AuthError } from './api';
-import { DictatePage } from './pages/dictate';
-import { HistoryPage } from './pages/history';
 import { LoginPage } from './pages/login';
 import { ReadAloudPage } from './pages/read-aloud';
 import { SettingsPage } from './pages/settings';
 import { useStatus } from './queries';
 import { Shell, type WebRoute } from './shell';
 
-const ROUTES: WebRoute[] = ['dictate', 'history', 'read-aloud', 'settings'];
+const ROUTES: WebRoute[] = ['read-aloud', 'settings'];
 
 function routeFromHash(): WebRoute {
   const value = window.location.hash.replace(/^#\/?/, '') as WebRoute;
-  return ROUTES.includes(value) ? value : 'dictate';
+  return ROUTES.includes(value) ? value : 'read-aloud';
 }
 
 export function App() {
@@ -27,7 +25,7 @@ export function App() {
   }, []);
 
   const navigate = (next: WebRoute) => {
-    window.location.hash = next === 'dictate' ? '' : `/${next}`;
+    window.location.hash = next === 'read-aloud' ? '' : `/${next}`;
     setRoute(next);
   };
 
@@ -63,8 +61,6 @@ export function App() {
 
   return (
     <Shell route={route} onNavigate={navigate}>
-      {route === 'dictate' && <DictatePage />}
-      {route === 'history' && <HistoryPage />}
       {route === 'read-aloud' && <ReadAloudPage />}
       {route === 'settings' && <SettingsPage />}
     </Shell>

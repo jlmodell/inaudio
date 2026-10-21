@@ -8,16 +8,6 @@ import { Worker } from 'node:worker_threads';
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)));
 const workerJs = path.join(root, 'out/server/inference-worker.mjs');
 
-const sttLayout = {
-  kind: 'stt',
-  modelType: 'nemo_transducer',
-  sampleRate: 16_000,
-  encoder: 'encoder.int8.onnx',
-  decoder: 'decoder.int8.onnx',
-  joiner: 'joiner.int8.onnx',
-  tokens: 'tokens.txt',
-};
-
 const ttsLayout = {
   kind: 'tts',
   family: 'kokoro',
@@ -89,7 +79,7 @@ if (!skipWithoutBuild()) {
     assert.doesNotMatch(source, /createRequire\(__filename\)/);
   });
 
-  test('built worker can load sherpa for STT and TTS without __filename', async (t) => {
+  test('built worker can load sherpa for TTS without __filename', async (t) => {
     const { worker, ready } = startWorker();
     t.after(() => worker.terminate());
     await ready;
@@ -97,16 +87,6 @@ if (!skipWithoutBuild()) {
     assert.equal(typeof ping.memoryRss, 'number');
 
     const missing = path.join(root, 'out', 'missing-sherpa-models');
-    await assert.rejects(
-      request(worker, {
-        type: 'stt:load',
-        modelId: 'parakeet-tdt-0.6b-v2-int8',
-        dir: missing,
-        layout: sttLayout,
-        threads: 1,
-      }),
-      assertNotFilename,
-    );
     await assert.rejects(
       request(worker, {
         type: 'tts:load',

@@ -23,14 +23,14 @@ function describe(worker: WorkerHealth | undefined, loaded: boolean): { tone: To
   }
 }
 
-/** The dictation engine and its model, at the foot of the sidebar. Opens Models. */
+/** The voice engine and its model, at the foot of the sidebar. Opens Models. */
 export function EngineStatus({ collapsed }: { collapsed: boolean }) {
   const { data: status } = useSystemStatus();
   const { data: settings } = useSettings();
   const navigate = useUi((s) => s.navigate);
-  const model = settings ? MODEL_CATALOG[settings.stt.modelId] : null;
+  const model = settings ? MODEL_CATALOG[settings.tts.modelId] : null;
   const worker = status?.worker;
-  const { tone, label } = describe(worker, !!model && worker?.loadedStt === model.id);
+  const { tone, label } = describe(worker, !!model && worker?.loadedTts === model.id);
   const summary = model ? `${model.name} · ${label}` : label;
 
   const chip = (

@@ -11,7 +11,6 @@ export const queryClient = new QueryClient({
 export const keys = {
   status: ['web-status'] as const,
   settings: ['web-settings'] as const,
-  history: ['web-history'] as const,
 };
 
 export function useStatus() {
@@ -25,13 +24,6 @@ export function useStatus() {
 
 export function useSettings() {
   return useQuery({ queryKey: keys.settings, queryFn: () => api.settings() });
-}
-
-export function useHistory(search: string) {
-  return useQuery({
-    queryKey: [...keys.history, search],
-    queryFn: () => api.history({ search, kind: 'all' }),
-  });
 }
 
 export function useUpdateSettings() {

@@ -11,9 +11,6 @@ import { formatBytes } from '@renderer/lib/format';
 import { useModelAction } from '@renderer/lib/queries';
 
 const LINKS: Record<string, ExternalLinkId> = {
-  'parakeet-tdt-0.6b-v2-int8': 'parakeetV2',
-  'parakeet-tdt-0.6b-v3-int8': 'parakeetV3',
-  'nemotron-speech-streaming-en-0.6b-560ms-int8': 'nemotron',
   'kokoro-en-v0_19': 'kokoro',
 };
 

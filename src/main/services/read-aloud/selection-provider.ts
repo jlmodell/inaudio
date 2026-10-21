@@ -28,7 +28,7 @@ export type SelectionResult =
 
 class CopyOnly implements SelectionAdapter {
   readonly method = 'accessibility';
-  private readonly command = resolveKeyCommand('copy');
+  private readonly command = resolveKeyCommand();
   async read(): Promise<NativeSelection> {
     return { kind: 'none' };
   }

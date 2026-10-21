@@ -2,7 +2,6 @@ import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
-import { historyQuerySchema, historyUpdateSchema } from '@shared/domain/history';
 import { KOKORO_VOICES, voiceIdSchema } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
 import { MAX_READ_SPEED, MIN_READ_SPEED } from '@shared/web/read-aloud-engine';
@@ -12,10 +11,9 @@ import type { WebConfig } from './config';
 import { log } from './log';
 import { resolveInside } from './paths';
 import type { SpeechService } from './speech';
-import { decodeFloat32le, decodeWav, encodeWav } from './wav';
+import { encodeWav } from './wav';
 
 const JSON_LIMIT = 64 * 1024;
-const AUDIO_LIMIT = 50 * 1024 * 1024;
 const CSP = buildContentSecurityPolicy({ dev: false, wasm: true });
 
 /** SharedArrayBuffer (multi-thread WASM) needs a cross-origin isolated document. */
@@ -99,53 +97,6 @@ async function route(
   }
   if (method === 'GET' && url.pathname === '/api/voices') {
     return json(res, 200, KOKORO_VOICES);
-  }
-  if (method === 'GET' && url.pathname === '/api/history') {
-    const query = historyQuerySchema.parse({
-      search: url.searchParams.get('search') ?? '',
-      limit: Number(url.searchParams.get('limit') ?? 100),
-      offset: Number(url.searchParams.get('offset') ?? 0),
-      kind: url.searchParams.get('kind') ?? 'all',
-      pinnedOnly: url.searchParams.get('pinned') === '1',
-    });
-    return json(res, 200, speech.history.list(query));
-  }
-  if (method === 'DELETE' && url.pathname === '/api/history') {
-    speech.history.clear();
-    return json(res, 200, { ok: true });
-  }
-  const historyItem = /^\/api\/history\/([^/]+)$/.exec(url.pathname);
-  if (historyItem) {
-    const id = decodeURIComponent(historyItem[1] ?? '');
-    if (method === 'GET') {
-      const item = speech.history.get(id);
-      return item ? json(res, 200, item) : json(res, 404, { error: 'Transcript not found' });
-    }
-    if (method === 'PATCH') {
-      const item = speech.history.update(id, historyUpdateSchema.parse(await readJson(req)));
-      return item ? json(res, 200, item) : json(res, 404, { error: 'Transcript not found' });
-    }
-    if (method === 'DELETE') {
-      speech.history.remove(id);
-      return json(res, 200, { ok: true });
-    }
-  }
-  if (method === 'POST' && url.pathname === '/api/transcribe') {
-    const audio = await readAudio(req);
-    const result = await speech.transcribe(audio.samples, audio.sampleRate, { save: true });
-    return json(res, 200, result);
-  }
-  if (method === 'POST' && url.pathname === '/api/live/start') {
-    return json(res, 200, speech.startLive());
-  }
-  const liveChunk = /^\/api\/live\/([^/]+)\/chunk$/.exec(url.pathname);
-  if (method === 'POST' && liveChunk) {
-    const audio = await readAudio(req);
-    return json(res, 200, await speech.liveChunk(liveChunk[1] ?? '', audio.samples, audio.sampleRate));
-  }
-  const liveStop = /^\/api\/live\/([^/]+)\/stop$/.exec(url.pathname);
-  if (method === 'POST' && liveStop) {
-    return json(res, 200, await speech.stopLive(liveStop[1] ?? ''));
   }
   if (method === 'POST' && (url.pathname === '/api/speak' || url.pathname === '/api/speak/stream')) {
     const body = await readJson(req);
@@ -276,16 +227,6 @@ async function readJson(req: http.IncomingMessage): Promise<Record<string, unkno
   const parsed: unknown = JSON.parse(Buffer.from(raw).toString('utf8'));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected a JSON object');
   return parsed as Record<string, unknown>;
-}
-
-async function readAudio(req: http.IncomingMessage): Promise<{ samples: Float32Array; sampleRate: number }> {
-  const raw = await readBody(req, AUDIO_LIMIT);
-  const type = (req.headers['content-type'] ?? '').split(';')[0]?.trim() ?? '';
-  if (type === 'application/octet-stream') {
-    const rate = Number(req.headers['x-sample-rate'] ?? 16_000);
-    return decodeFloat32le(raw, rate);
-  }
-  return decodeWav(raw);
 }
 
 function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array> {

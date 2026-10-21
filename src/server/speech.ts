@@ -1,31 +1,18 @@
-import { randomUUID } from 'node:crypto';
 import { MODEL_CATALOG, voiceSid, type ModelId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
-import { MAX_TRANSCRIPT_CHARS, type Transcript } from '@shared/domain/history';
-import { joinPassage, type PassageCut } from '@shared/live/join';
 import { normalizeText, segmentText, type TextSegment } from '@shared/read-aloud/segment';
-import { applyReplacements } from '@shared/text/replacements';
-import type { SttCleanup, SttResult, TtsResult } from '@shared/worker/protocol';
-import type { WebLiveResult, WebModelProgress, WebStatus } from '@shared/web/api';
+import type { TtsResult } from '@shared/worker/protocol';
+import type { WebModelProgress, WebStatus } from '@shared/web/api';
 import { BrowserTtsStore } from './browser-tts';
-import { CleanupModels } from './cleanup';
 import type { WebConfig } from './config';
-import { JsonHistory } from './history';
 import { NodeInferenceHost } from './inference-host';
 import { downloadProgressBucket, formatModelProgress, log } from './log';
 import { ModelStore, type ModelProgress } from './model-store';
 import { defaultSettings, SettingsStore } from './settings';
 
-const CHUNK_MS = 6_000;
-const MAX_SESSION_MS = 10 * 60_000;
-const SESSION_TTL_MS = 15 * 60_000;
-
 export interface SpeechBackend {
-  transcribe(samples: Float32Array, sampleRate: number, cleanup?: SttCleanup): Promise<SttResult>;
   speak(text: string, sid: number, speed: number): Promise<TtsResult>;
-  loadStt(modelId: ModelId, dir: string, threads: number): Promise<void>;
   loadTts(modelId: ModelId, dir: string, threads: number): Promise<void>;
-  sttReady(modelId: ModelId): boolean;
   ttsReady(modelId: ModelId): boolean;
   close?(): Promise<void>;
 }
@@ -33,28 +20,14 @@ export interface SpeechBackend {
 class HostBackend implements SpeechBackend {
   constructor(private readonly host: NodeInferenceHost) {}
 
-  transcribe(samples: Float32Array, sampleRate: number, cleanup?: SttCleanup): Promise<SttResult> {
-    return this.host.transcribe(samples, sampleRate, cleanup);
-  }
-
   speak(text: string, sid: number, speed: number): Promise<TtsResult> {
     return this.host.speak(text, sid, speed);
-  }
-
-  async loadStt(modelId: ModelId, dir: string, threads: number): Promise<void> {
-    const layout = MODEL_CATALOG[modelId].layout;
-    if (layout.kind !== 'stt') throw new Error('Not a speech-to-text model');
-    await this.host.loadStt({ type: 'stt:load', modelId, dir, layout, threads });
   }
 
   async loadTts(modelId: ModelId, dir: string, threads: number): Promise<void> {
     const layout = MODEL_CATALOG[modelId].layout;
     if (layout.kind !== 'tts') throw new Error('Not a text-to-speech model');
     await this.host.loadTts({ type: 'tts:load', modelId, dir, layout, threads });
-  }
-
-  sttReady(modelId: ModelId): boolean {
-    return this.host.isLoaded(modelId);
   }
 
   ttsReady(modelId: ModelId): boolean {
@@ -66,19 +39,9 @@ class HostBackend implements SpeechBackend {
   }
 }
 
-/** Deterministic stand-in so HTTP tests can run without downloading 600 MB models. */
+/** Deterministic stand-in so HTTP tests can run without downloading 300 MB models. */
 export class FakeSpeechBackend implements SpeechBackend {
-  private stt?: ModelId;
   private tts?: ModelId;
-
-  async transcribe(samples: Float32Array, sampleRate: number): Promise<SttResult> {
-    const seconds = samples.length / sampleRate;
-    return {
-      text: seconds < 0.05 ? '' : 'hello from inaudio',
-      language: 'en',
-      inferenceMs: 1,
-    };
-  }
 
   async speak(): Promise<TtsResult> {
     const sampleRate = 16_000;
@@ -87,16 +50,8 @@ export class FakeSpeechBackend implements SpeechBackend {
     return { samples, sampleRate, inferenceMs: 1 };
   }
 
-  async loadStt(modelId: ModelId): Promise<void> {
-    this.stt = modelId;
-  }
-
   async loadTts(modelId: ModelId): Promise<void> {
     this.tts = modelId;
-  }
-
-  sttReady(modelId: ModelId): boolean {
-    return this.stt === modelId;
   }
 
   ttsReady(modelId: ModelId): boolean {
@@ -104,29 +59,13 @@ export class FakeSpeechBackend implements SpeechBackend {
   }
 }
 
-interface LiveSession {
-  id: string;
-  startedAt: number;
-  sampleRate: number;
-  pending: Float32Array[];
-  pendingLength: number;
-  text: string;
-  lastCut: PassageCut | null;
-  inferenceMs: number;
-  durationMs: number;
-}
-
 export class SpeechService {
-  readonly history: JsonHistory;
   readonly settings: SettingsStore;
   readonly models: ModelStore;
   readonly browserTts: BrowserTtsStore;
-  readonly cleanup: CleanupModels;
   private readonly backend: SpeechBackend;
-  private readonly sessions = new Map<string, LiveSession>();
-  private readonly loadError: Partial<Record<'stt' | 'tts', string>> = {};
+  private readonly loadError: Partial<Record<'tts', string>> = {};
   private readonly downloadBucket = new Map<ModelId, number>();
-  private sttLoading: Promise<void> | null = null;
   private ttsLoading: Promise<void> | null = null;
   private message?: string;
 
@@ -134,28 +73,20 @@ export class SpeechService {
     private readonly config: WebConfig,
     backend?: SpeechBackend,
   ) {
-    this.history = new JsonHistory(config.paths.history);
-    this.settings = new SettingsStore(
-      config.paths.settings,
-      defaultSettings(config.sttModelId, config.ttsModelId),
-    );
+    this.settings = new SettingsStore(config.paths.settings, defaultSettings(config.ttsModelId));
     this.models = new ModelStore(config.paths.models, config.paths.downloads);
     this.browserTts = new BrowserTtsStore(
       config.paths.browserTts,
       config.downloadModels && !config.fakeSpeech,
     );
-    this.cleanup = new CleanupModels(`${config.paths.assets}/models`);
     this.backend = backend ?? (config.fakeSpeech ? new FakeSpeechBackend() : new HostBackend(new NodeInferenceHost()));
     this.models.on('progress', (progress) => this.logModelProgress(progress));
   }
 
   async start(): Promise<void> {
-    await this.cleanup.verify();
-    const sttId = this.settings.get().sttModelId;
     const ttsId = this.settings.get().ttsModelId;
-    log.info(`Speech models: ${MODEL_CATALOG[sttId].name} (STT), ${MODEL_CATALOG[ttsId].name} (TTS)`);
+    log.info(`Speech model: ${MODEL_CATALOG[ttsId].name} (TTS)`);
     if (this.config.fakeSpeech || this.backend instanceof FakeSpeechBackend) {
-      await this.backend.loadStt(sttId, '', this.config.threads);
       await this.backend.loadTts(ttsId, '', this.config.threads);
       log.info('Fake speech engine is ready (INAUDIO_FAKE_SPEECH=1).');
       return;
@@ -164,127 +95,32 @@ export class SpeechService {
       log.error('On-device voice is not ready; browsers can still use the built-in voice', error);
     });
     log.info(`Looking for models in ${this.config.paths.models}`);
-    await this.models.discover(sttId);
     await this.models.discover(ttsId);
-    await Promise.all([
-      this.startModel(sttId, 'stt').catch((error) => {
-        this.message = error instanceof Error ? error.message : String(error);
-      }),
-      this.startModel(ttsId, 'tts').catch((error) => {
-        this.message ??= error instanceof Error ? error.message : String(error);
-      }),
-    ]);
+    await this.startModel(ttsId).catch((error) => {
+      this.message = error instanceof Error ? error.message : String(error);
+    });
   }
 
-  private startModel(id: ModelId, kind: 'stt' | 'tts'): Promise<void> {
+  private startModel(id: ModelId): Promise<void> {
     if (!this.models.isInstalled(id) && !this.config.downloadModels) {
       log.info(
         `${MODEL_CATALOG[id].name} is not installed. Download it into ${this.config.paths.models} or set INAUDIO_DOWNLOAD_MODELS=1.`,
       );
       return Promise.resolve();
     }
-    return kind === 'stt' ? this.ensureStt() : this.ensureTts();
+    return this.ensureTts();
   }
 
   status(authenticated: boolean): WebStatus {
     const settings = this.settings.get();
     return {
-      ready: this.backend.sttReady(settings.sttModelId),
+      ready: this.backend.ttsReady(settings.ttsModelId),
       authRequired: Boolean(this.config.password),
       authenticated,
-      stt: this.modelProgress(settings.sttModelId, this.backend.sttReady(settings.sttModelId)),
       tts: this.modelProgress(settings.ttsModelId, this.backend.ttsReady(settings.ttsModelId)),
       browserTts: this.browserTts.status(),
       ...(this.message ? { message: this.message } : {}),
     };
-  }
-
-  async transcribe(
-    samples: Float32Array,
-    sampleRate: number,
-    options: { save: boolean; source?: Transcript['source'] } = { save: true },
-  ): Promise<{ transcript: Transcript | null; text: string }> {
-    const started = Date.now();
-    await this.ensureStt();
-    const settings = this.settings.get();
-    const result = await this.backend.transcribe(samples, sampleRate, this.cleanupPaths(settings.speechCleanup));
-    const text = applyReplacements(result.text, []).slice(0, MAX_TRANSCRIPT_CHARS);
-    const durationMs = Math.round((samples.length / sampleRate) * 1000);
-    if (!options.save || !settings.saveHistory || !text) {
-      return { transcript: null, text };
-    }
-    const transcript: Transcript = {
-      id: randomUUID(),
-      text,
-      modelId: settings.sttModelId,
-      durationMs,
-      inferenceMs: result.inferenceMs,
-      language: result.language,
-      createdAt: started,
-      source: options.source ?? 'microphone',
-      title: '',
-      pinned: false,
-    };
-    this.history.add(transcript);
-    return { transcript, text };
-  }
-
-  startLive(): { id: string } {
-    this.sweepSessions();
-    const id = randomUUID();
-    this.sessions.set(id, {
-      id,
-      startedAt: Date.now(),
-      sampleRate: 16_000,
-      pending: [],
-      pendingLength: 0,
-      text: '',
-      lastCut: null,
-      inferenceMs: 0,
-      durationMs: 0,
-    });
-    return { id };
-  }
-
-  async liveChunk(id: string, samples: Float32Array, sampleRate: number): Promise<WebLiveResult> {
-    const session = this.session(id);
-    session.sampleRate = sampleRate;
-    session.pending.push(samples);
-    session.pendingLength += samples.length;
-    session.durationMs = Date.now() - session.startedAt;
-    if (session.durationMs > MAX_SESSION_MS) throw new Error('Dictation is longer than ten minutes');
-    const pendingMs = (session.pendingLength / sampleRate) * 1000;
-    if (pendingMs < CHUNK_MS) {
-      return { text: session.text, provisional: '' };
-    }
-    const chunk = takePending(session);
-    await this.appendPassage(session, chunk, sampleRate, 'limit');
-    return { text: session.text, provisional: '' };
-  }
-
-  async stopLive(id: string): Promise<{ transcript: Transcript | null; text: string }> {
-    const session = this.session(id);
-    this.sessions.delete(id);
-    if (session.pendingLength) {
-      await this.appendPassage(session, takePending(session), session.sampleRate, 'end');
-    }
-    const text = session.text.slice(0, MAX_TRANSCRIPT_CHARS);
-    const settings = this.settings.get();
-    if (!settings.saveHistory || !text) return { transcript: null, text };
-    const transcript: Transcript = {
-      id: randomUUID(),
-      text,
-      modelId: settings.sttModelId,
-      durationMs: session.durationMs,
-      inferenceMs: session.inferenceMs,
-      language: 'en',
-      createdAt: session.startedAt,
-      source: 'microphone',
-      title: '',
-      pinned: false,
-    };
-    this.history.add(transcript);
-    return { transcript, text };
   }
 
   async speak(text: string, voiceId: string, speed: number): Promise<TtsResult> {
@@ -352,7 +188,6 @@ export class SpeechService {
   }
 
   async close(): Promise<void> {
-    this.history.close();
     await this.backend.close?.();
   }
 
@@ -370,40 +205,29 @@ export class SpeechService {
     return {
       ...progress,
       name: model.name,
-      kind: model.kind,
+      kind: 'tts',
       loaded,
-      ...(this.loadError[model.kind] ? { error: this.loadError[model.kind] } : {}),
+      ...(this.loadError.tts ? { error: this.loadError.tts } : {}),
     };
   }
 
-  private cleanupPaths(enabled: boolean): SttCleanup | undefined {
-    if (!enabled) return undefined;
-    const vad = this.cleanup.path('vad');
-    const denoiser = this.cleanup.path('denoiser');
-    if (!vad && !denoiser) return undefined;
-    return { ...(vad ? { vad } : {}), ...(denoiser ? { denoiser } : {}) };
-  }
-
-  private async prepare(id: ModelId, kind: 'stt' | 'tts'): Promise<void> {
+  private async prepare(id: ModelId): Promise<void> {
     const name = MODEL_CATALOG[id].name;
     this.message = undefined;
-    log.info(`Preparing ${name} (${kind})`);
+    log.info(`Preparing ${name} (tts)`);
     try {
       await this.models.ensure(id);
       const dir = this.models.directory(id);
       log.info(`Loading ${name} from ${dir}`);
       const loadStarted = Date.now();
-      if (kind === 'stt') await this.backend.loadStt(id, dir, this.config.threads);
-      else await this.backend.loadTts(id, dir, this.config.threads);
+      await this.backend.loadTts(id, dir, this.config.threads);
       log.info(`Loaded ${name} in ${Date.now() - loadStarted}ms`);
-      if (kind === 'tts') {
-        const warmStarted = Date.now();
-        await this.backend.speak('Hi.', voiceSid(this.settings.get().voiceId), 1);
-        log.info(`Warmed ${name} in ${Date.now() - warmStarted}ms`);
-      }
-      delete this.loadError[kind];
+      const warmStarted = Date.now();
+      await this.backend.speak('Hi.', voiceSid(this.settings.get().voiceId), 1);
+      log.info(`Warmed ${name} in ${Date.now() - warmStarted}ms`);
+      delete this.loadError.tts;
     } catch (error) {
-      this.loadError[kind] = error instanceof Error ? error.message : String(error);
+      this.loadError.tts = error instanceof Error ? error.message : String(error);
       log.error(`Failed to load ${name}`, error);
       throw error;
     }
@@ -421,68 +245,12 @@ export class SpeechService {
     else log.info(line);
   }
 
-  private ensureStt(): Promise<void> {
-    const id = this.settings.get().sttModelId;
-    if (this.backend.sttReady(id)) return Promise.resolve();
-    this.sttLoading ??= this.prepare(id, 'stt').finally(() => {
-      this.sttLoading = null;
-    });
-    return this.sttLoading;
-  }
-
   private ensureTts(): Promise<void> {
     const id = this.settings.get().ttsModelId;
     if (this.backend.ttsReady(id)) return Promise.resolve();
-    this.ttsLoading ??= this.prepare(id, 'tts').finally(() => {
+    this.ttsLoading ??= this.prepare(id).finally(() => {
       this.ttsLoading = null;
     });
     return this.ttsLoading;
   }
-
-  private session(id: string): LiveSession {
-    const session = this.sessions.get(id);
-    if (!session) throw new Error('This dictation session is no longer active');
-    return session;
-  }
-
-  private sweepSessions(): void {
-    const now = Date.now();
-    for (const [id, session] of this.sessions) {
-      if (now - session.startedAt > SESSION_TTL_MS) this.sessions.delete(id);
-    }
-  }
-
-  private async appendPassage(
-    session: LiveSession,
-    samples: Float32Array,
-    sampleRate: number,
-    cut: PassageCut,
-  ): Promise<void> {
-    await this.ensureStt();
-    const settings = this.settings.get();
-    const result = await this.backend.transcribe(
-      samples,
-      sampleRate,
-      this.cleanupPaths(settings.speechCleanup),
-    );
-    session.inferenceMs += result.inferenceMs;
-    session.text = joinPassage(session.text, session.lastCut, applyReplacements(result.text, []), {
-      cut,
-      pauseBeforeMs: 0,
-      overlapMs: 0,
-    }, true);
-    session.lastCut = cut;
-  }
-}
-
-function takePending(session: LiveSession): Float32Array {
-  const out = new Float32Array(session.pendingLength);
-  let offset = 0;
-  for (const chunk of session.pending) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  session.pending = [];
-  session.pendingLength = 0;
-  return out;
 }

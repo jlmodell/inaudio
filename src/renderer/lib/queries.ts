@@ -1,5 +1,4 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { HistoryQuery } from '@shared/domain/history';
 import type { ModelId } from '@shared/domain/models';
 import type { Settings, SettingsPatch } from '@shared/domain/settings';
 import type { UpdateStatus, ReleaseNotesResult } from '@shared/domain/update';
@@ -16,8 +15,6 @@ export const keys = {
   settings: ['settings'] as const,
   status: ['status'] as const,
   models: ['models'] as const,
-  history: (query: HistoryQuery) => ['history', query] as const,
-  historyAll: ['history'] as const,
 };
 
 export function useSettings() {
@@ -92,10 +89,6 @@ export function useUpdateActions() {
     download: useMutation({ mutationFn: () => api.updates.download(), onSuccess: refresh }),
     install: useMutation({ mutationFn: () => api.updates.install() }),
   };
-}
-
-export function useHistory(query: HistoryQuery) {
-  return useQuery({ queryKey: keys.history(query), queryFn: () => api.history.list(query), staleTime: 0 });
 }
 
 export function useModelAction() {

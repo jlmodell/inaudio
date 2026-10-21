@@ -2,14 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { log } from './log';
-import type {
-  PingResult,
-  SttCleanup,
-  SttResult,
-  TtsResult,
-  WorkerMessage,
-  WorkerRequest,
-} from '@shared/worker/protocol';
+import type { PingResult, TtsResult, WorkerMessage, WorkerRequest } from '@shared/worker/protocol';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 type RequestInput = DistributiveOmit<WorkerRequest, 'id'>;
@@ -20,11 +13,8 @@ interface Pending {
 }
 
 const TIMEOUTS: Record<RequestInput['type'], number> = {
-  'stt:load': 120_000,
-  'stt:transcribe': 180_000,
   'tts:load': 120_000,
   'tts:speak': 180_000,
-  'text:punct': 30_000,
   unload: 10_000,
   ping: 5_000,
 };
@@ -44,10 +34,10 @@ export class NodeInferenceHost extends EventEmitter<{
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private ready: Promise<void> | null = null;
-  private loaded: { stt?: string; tts?: string } = {};
+  private loadedTts?: string;
 
   isLoaded(modelId: string): boolean {
-    return this.loaded.stt === modelId || this.loaded.tts === modelId;
+    return this.loadedTts === modelId;
   }
 
   start(): Promise<void> {
@@ -95,7 +85,7 @@ export class NodeInferenceHost extends EventEmitter<{
     const child = this.child;
     this.child = null;
     this.ready = null;
-    this.loaded = {};
+    this.loadedTts = undefined;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error('Inference worker stopped'));
@@ -105,26 +95,11 @@ export class NodeInferenceHost extends EventEmitter<{
     await child.terminate();
   }
 
-  async loadStt(input: Extract<RequestInput, { type: 'stt:load' }>): Promise<void> {
-    if (this.loaded.stt === input.modelId) return;
-    delete this.loaded.stt;
-    await this.request(input);
-    this.loaded.stt = input.modelId;
-  }
-
   async loadTts(input: Extract<RequestInput, { type: 'tts:load' }>): Promise<void> {
-    if (this.loaded.tts === input.modelId) return;
-    delete this.loaded.tts;
+    if (this.loadedTts === input.modelId) return;
+    this.loadedTts = undefined;
     await this.request(input);
-    this.loaded.tts = input.modelId;
-  }
-
-  transcribe(samples: Float32Array, sampleRate: number, cleanup?: SttCleanup): Promise<SttResult> {
-    return this.request({ type: 'stt:transcribe', samples, sampleRate, cleanup }) as Promise<SttResult>;
-  }
-
-  punctuate(text: string, model: string, vocab: string): Promise<string> {
-    return this.request({ type: 'text:punct', text, model, vocab }) as Promise<string>;
+    this.loadedTts = input.modelId;
   }
 
   speak(text: string, sid: number, speed: number): Promise<TtsResult> {
@@ -158,6 +133,6 @@ export class NodeInferenceHost extends EventEmitter<{
     this.pending.clear();
     this.child = null;
     this.ready = null;
-    this.loaded = {};
+    this.loadedTts = undefined;
   }
 }
