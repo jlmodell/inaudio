@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { z } from 'zod';
 import { sttModelIdSchema, ttsModelIdSchema, voiceIdSchema, type ModelId } from '@shared/domain/models';
+import { DEFAULT_READ_ALOUD_ENGINE, READ_ALOUD_ENGINES } from '@shared/web/read-aloud-engine';
 import type { WebSettings, WebSettingsPatch } from '@shared/web/api';
 
 const schema = z.object({
@@ -10,6 +11,7 @@ const schema = z.object({
   speed: z.number().min(0.5).max(2),
   saveHistory: z.boolean(),
   speechCleanup: z.boolean(),
+  readAloudEngine: z.enum(READ_ALOUD_ENGINES),
 });
 
 const patchSchema = schema.partial().strict();
@@ -22,6 +24,7 @@ export function defaultSettings(sttModelId: ModelId, ttsModelId: ModelId): WebSe
     speed: 1,
     saveHistory: true,
     speechCleanup: false,
+    readAloudEngine: DEFAULT_READ_ALOUD_ENGINE,
   };
 }
 

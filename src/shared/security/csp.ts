@@ -2,10 +2,14 @@
  * One CSP definition, used for the <meta> tag at build time and the response
  * header set by the main process. Dev relaxes script/connect for Vite HMR only.
  */
-export function buildContentSecurityPolicy({ dev }: { dev: boolean }): string {
+export function buildContentSecurityPolicy({ dev, wasm = false }: { dev: boolean; wasm?: boolean }): string {
   const directives: Record<string, string[]> = {
     'default-src': ["'self'"],
-    'script-src': dev ? ["'self'", "'unsafe-inline'"] : ["'self'"],
+    'script-src': [
+      "'self'",
+      ...(dev ? (["'unsafe-inline'"] as const) : []),
+      ...(wasm ? (["'wasm-unsafe-eval'"] as const) : []),
+    ],
     'style-src': ["'self'", "'unsafe-inline'"],
     'img-src': ["'self'", 'data:'],
     'media-src': ["'self'", 'blob:'],

@@ -1,5 +1,7 @@
 import type { Transcript } from '../domain/history';
 import type { ModelId, ModelInstallState, VoiceId } from '../domain/models';
+import type { BrowserTtsProgress } from './browser-tts';
+import type { ReadAloudEngine } from './read-aloud-engine';
 
 export interface WebModelProgress {
   id: ModelId;
@@ -19,6 +21,7 @@ export interface WebStatus {
   authenticated: boolean;
   stt: WebModelProgress;
   tts: WebModelProgress;
+  browserTts: BrowserTtsProgress;
   message?: string;
 }
 
@@ -29,6 +32,7 @@ export interface WebSettings {
   speed: number;
   saveHistory: boolean;
   speechCleanup: boolean;
+  readAloudEngine: ReadAloudEngine;
 }
 
 export type WebSettingsPatch = Partial<WebSettings>;

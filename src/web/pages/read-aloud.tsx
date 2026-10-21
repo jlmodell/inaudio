@@ -2,26 +2,32 @@ import { Pause, Play, Square } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { KOKORO_VOICES, type VoiceId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
+import { readAloudProgressPercent } from '@shared/web/read-aloud-engine';
 import { Button } from '@renderer/components/ui/button';
 import { Notice, PageHeader } from '@renderer/components/ui/layout';
+import { Progress } from '@renderer/components/ui/progress';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
 import { useSettings, useStatus, useUpdateSettings } from '../queries';
-import { SpeakQueue } from '../speak-queue';
+import { ReadAloudPlayer, type ReadAloudProgress } from '../tts/player';
 
 export function ReadAloudPage() {
   const { data: settings } = useSettings();
   const { data: status } = useStatus();
   const update = useUpdateSettings();
-  const voiceReady = !!status?.tts.loaded;
+  const engine = settings?.readAloudEngine ?? 'browser';
+  const serverReady = !!status?.tts.loaded;
+  const needsServer = engine === 'server';
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const queue = useRef<SpeakQueue | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ReadAloudProgress | null>(null);
+  const player = useRef<ReadAloudPlayer | null>(null);
 
   useEffect(
     () => () => {
-      queue.current?.stop();
+      player.current?.stop();
     },
     [],
   );
@@ -32,16 +38,31 @@ export function ReadAloudPage() {
     const clipped = text.trim().slice(0, MAX_READ_ALOUD_CHARS);
     if (!clipped) return;
     setError(null);
+    setNotice(null);
+    setProgress(null);
     setPhase('loading');
-    const player = queue.current ?? new SpeakQueue();
-    queue.current = player;
-    await player.start(
-      { text: clipped, voiceId: settings.voiceId, speed: settings.speed },
+    const next = player.current ?? new ReadAloudPlayer();
+    player.current = next;
+    await next.start(
+      { text: clipped, voiceId: settings.voiceId, speed: settings.speed, engine },
       {
-        onPlaying: () => setPhase('playing'),
-        onEnded: () => setPhase('idle'),
+        onProgress: (value) => setProgress(value),
+        onPlaying: () => {
+          setPhase('playing');
+          setProgress(null);
+        },
+        onEnded: () => {
+          setPhase('idle');
+          setProgress(null);
+        },
+        onFallback: (_used, reason) => {
+          setNotice(
+            `This device could not load the on-device voice, so Inaudio is using the browser's built-in voice. ${reason}`,
+          );
+        },
         onError: (caught) => {
           setPhase('idle');
+          setProgress(null);
           setError(caught.message);
         },
       },
@@ -49,30 +70,38 @@ export function ReadAloudPage() {
   };
 
   const togglePause = () => {
-    const player = queue.current;
-    if (!player) return;
+    const current = player.current;
+    if (!current) return;
     if (phase === 'playing') {
-      player.pause();
+      current.pause();
       setPhase('paused');
     } else if (phase === 'paused') {
-      player.resume();
+      current.resume();
       setPhase('playing');
     }
   };
 
   const stop = () => {
-    queue.current?.stop();
+    player.current?.stop();
     setPhase('idle');
+    setProgress(null);
   };
+
+  const blocked = needsServer && !serverReady;
+  const percent = progress ? readAloudProgressPercent(progress.loaded, progress.total) : 0;
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="Read aloud" description="Paste text and hear it on this computer. Nothing is sent to the internet." />
+      <PageHeader
+        title="Read aloud"
+        description="Paste text and hear it here. The default voice runs on this device after a one-time download from your Inaudio."
+      />
       <div className="flex flex-wrap items-center gap-4">
         <Select
           label="Voice"
           value={settings.voiceId}
           onValueChange={(voiceId: VoiceId) => update.mutate({ voiceId })}
+          disabled={engine === 'speech'}
           options={KOKORO_VOICES.map((voice) => ({
             value: voice.id,
             label: voice.name,
@@ -98,16 +127,27 @@ export function ReadAloudPage() {
         rows={10}
         className="w-full resize-y rounded-[12px] border border-line bg-surface px-4 py-3 text-base leading-relaxed outline-none focus:border-accent"
       />
-      {status && !voiceReady && (status.tts.error || status.message) && (
+      {needsServer && status && !serverReady && (status.tts.error || status.message) && (
         <Notice tone="danger">{status.tts.error || status.message}</Notice>
       )}
-      {status && !voiceReady && !status.tts.error && !status.message && (
-        <Notice>The voice model is still loading.</Notice>
+      {needsServer && status && !serverReady && !status.tts.error && !status.message && (
+        <Notice>The server voice is still loading.</Notice>
       )}
+      {engine === 'speech' && <Notice>Using this browser's built-in voice. You can switch in Settings.</Notice>}
+      {progress && (
+        <div className="grid gap-2">
+          <Notice>
+            Downloading the voice for this device… {percent}%
+            {progress.file ? ` (${progress.file})` : ''}
+          </Notice>
+          <Progress value={percent} label="Voice download" />
+        </div>
+      )}
+      {notice && <Notice>{notice}</Notice>}
       {error && <Notice tone="danger">{error}</Notice>}
       <div className="flex flex-wrap gap-2">
         {phase === 'idle' || phase === 'loading' ? (
-          <Button variant="primary" onClick={() => void play()} disabled={!text.trim() || !voiceReady || phase === 'loading'}>
+          <Button variant="primary" onClick={() => void play()} disabled={!text.trim() || blocked || phase === 'loading'}>
             <Play /> {phase === 'loading' ? 'Preparing…' : 'Read aloud'}
           </Button>
         ) : (
