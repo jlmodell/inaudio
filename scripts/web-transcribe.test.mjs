@@ -17,6 +17,8 @@ function osData() {
 }
 
 const installed = fs.existsSync(path.join(modelDir, 'encoder.int8.onnx'));
+const kokoroDir = path.join(path.dirname(modelDir), 'kokoro-en-v0_19');
+const kokoroInstalled = fs.existsSync(path.join(kokoroDir, 'model.onnx'));
 const serverJs = path.join(root, 'out/server/index.mjs');
 
 test(
@@ -60,6 +62,48 @@ test(
   },
 );
 
+test(
+  'real sherpa-onnx read-aloud through the built server',
+  { skip: !kokoroInstalled || !fs.existsSync(serverJs) },
+  async () => {
+    const { spawn } = await import('node:child_process');
+    const os = await import('node:os');
+    const data = fs.mkdtempSync(path.join(os.tmpdir(), 'inaudio-speak-'));
+    await fs.promises.cp(path.dirname(modelDir), path.join(data, 'models'), { recursive: true });
+    const port = 19_500 + Math.floor(Math.random() * 400);
+    const child = spawn(process.execPath, [serverJs], {
+      cwd: root,
+      env: {
+        ...process.env,
+        INAUDIO_DATA: data,
+        INAUDIO_PORT: String(port),
+        INAUDIO_HOST: '127.0.0.1',
+        INAUDIO_PASSWORD: '',
+        INAUDIO_DOWNLOAD_MODELS: '0',
+        INAUDIO_WEB_ROOT: path.join(root, 'out/web'),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      await waitFor(child, 'Inaudio web is on', 30_000);
+      await waitReady(port, 120_000, 'tts');
+      const response = await fetch(`http://127.0.0.1:${port}/api/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hello from inaudio' }),
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'audio/wav');
+      const wav = Buffer.from(await response.arrayBuffer());
+      assert.ok(wav.byteLength > 44);
+      assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+    } finally {
+      child.kill('SIGTERM');
+      await fs.promises.rm(data, { recursive: true, force: true });
+    }
+  },
+);
+
 function speechClip() {
   // A short voiced-like sweep. Real words need a real recording; this still
   // exercises the loaded recognizer end to end.
@@ -90,12 +134,12 @@ function waitFor(child, needle, ms) {
   });
 }
 
-async function waitReady(port, ms) {
+async function waitReady(port, ms, kind = 'stt') {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     try {
       const status = await fetch(`http://127.0.0.1:${port}/api/status`).then((r) => r.json());
-      if (status.ready) return;
+      if (kind === 'tts' ? status.tts?.loaded : status.ready) return;
     } catch {
       /* still booting */
     }

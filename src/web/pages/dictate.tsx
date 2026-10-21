@@ -127,10 +127,10 @@ export function DictatePage() {
           </div>
         </Notice>
       )}
-      {status && !ready && !downloading && status.stt.error && (
-        <Notice tone="danger">{status.stt.error}</Notice>
+      {status && !ready && !downloading && (status.stt.error || status.message) && (
+        <Notice tone="danger">{status.stt.error || status.message}</Notice>
       )}
-      {status && !ready && !downloading && !status.stt.error && (
+      {status && !ready && !downloading && !status.stt.error && !status.message && (
         <Notice>The speech model is still loading.</Notice>
       )}
 

@@ -29,6 +29,7 @@ function tone(seconds = 0.4, sampleRate = 16_000) {
 async function startServer() {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'inaudio-web-'));
   const port = 18_000 + Math.floor(Math.random() * 1000);
+  const logs = [];
   const child = spawn(process.execPath, [serverJs], {
     cwd: root,
     env: {
@@ -45,7 +46,9 @@ async function startServer() {
   const ready = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('server did not start')), 15_000);
     const onData = (chunk) => {
-      if (String(chunk).includes('Inaudio web is on')) {
+      const text = String(chunk);
+      logs.push(text);
+      if (text.includes('Inaudio web is on')) {
         clearTimeout(timer);
         resolve(undefined);
       }
@@ -60,6 +63,7 @@ async function startServer() {
   void ready;
   return {
     port,
+    logs,
     async close() {
       child.kill('SIGTERM');
       await fs.promises.rm(data, { recursive: true, force: true });
@@ -145,4 +149,58 @@ if (!skipWithoutBuild()) {
     assert.equal(page.status, 200);
     assert.match(await page.text(), /Inaudio/);
   });
+
+  test('web server reads text aloud and logs API 500s', async (t) => {
+    const server = await startServer();
+    t.after(() => server.close());
+    const base = `http://127.0.0.1:${server.port}`;
+    const headers = await signIn(base);
+    await waitReady(base, headers);
+
+    const spoken = await fetch(`${base}/api/speak`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello from inaudio' }),
+    });
+    assert.equal(spoken.status, 200);
+    assert.equal(spoken.headers.get('content-type'), 'audio/wav');
+    const wav = Buffer.from(await spoken.arrayBuffer());
+    assert.ok(wav.byteLength > 44);
+    assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+
+    const live = await fetch(`${base}/api/live/start`, { method: 'POST', headers });
+    assert.equal(live.status, 200);
+    const session = await live.json();
+    const chunk = await fetch(`${base}/api/live/${session.id}/chunk`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'audio/wav' },
+      body: tone(0.2),
+    });
+    assert.equal(chunk.status, 200);
+    const stopped = await fetch(`${base}/api/live/${session.id}/stop`, { method: 'POST', headers });
+    assert.equal(stopped.status, 200);
+    const finished = await stopped.json();
+    assert.equal(finished.text, 'hello from inaudio');
+
+    const failed = await fetch(`${base}/api/speak`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: '{',
+    });
+    assert.equal(failed.status, 500);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.match(server.logs.join(''), /POST \/api\/speak failed with 500/);
+  });
+}
+
+async function signIn(base) {
+  const login = await fetch(`${base}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: 'test-pass' }),
+  });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get('set-cookie');
+  assert.ok(cookie);
+  return { Cookie: cookie.split(';', 1)[0] ?? '' };
 }

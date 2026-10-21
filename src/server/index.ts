@@ -1,5 +1,6 @@
 import { loadConfig } from './config';
 import { createServer } from './http';
+import { log } from './log';
 import { SpeechService } from './speech';
 
 const config = loadConfig();
@@ -14,7 +15,7 @@ server.listen(config.port, config.host, () => {
 });
 
 void speech.start().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  log.error('Speech engine failed to start', error);
 });
 
 const shutdown = () => {

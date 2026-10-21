@@ -9,7 +9,8 @@ import { CleanupModels } from './cleanup';
 import type { WebConfig } from './config';
 import { JsonHistory } from './history';
 import { NodeInferenceHost } from './inference-host';
-import { ModelStore } from './model-store';
+import { downloadProgressBucket, formatModelProgress, log } from './log';
+import { ModelStore, type ModelProgress } from './model-store';
 import { defaultSettings, SettingsStore } from './settings';
 
 const CHUNK_MS = 6_000;
@@ -119,6 +120,8 @@ export class SpeechService {
   readonly cleanup: CleanupModels;
   private readonly backend: SpeechBackend;
   private readonly sessions = new Map<string, LiveSession>();
+  private readonly loadError: Partial<Record<'stt' | 'tts', string>> = {};
+  private readonly downloadBucket = new Map<ModelId, number>();
   private sttLoading: Promise<void> | null = null;
   private ttsLoading: Promise<void> | null = null;
   private message?: string;
@@ -135,25 +138,39 @@ export class SpeechService {
     this.models = new ModelStore(config.paths.models, config.paths.downloads);
     this.cleanup = new CleanupModels(`${config.paths.assets}/models`);
     this.backend = backend ?? (config.fakeSpeech ? new FakeSpeechBackend() : new HostBackend(new NodeInferenceHost()));
+    this.models.on('progress', (progress) => this.logModelProgress(progress));
   }
 
   async start(): Promise<void> {
     await this.cleanup.verify();
-    if (this.config.fakeSpeech || this.backend instanceof FakeSpeechBackend) {
-      await this.backend.loadStt(this.settings.get().sttModelId, '', this.config.threads);
-      await this.backend.loadTts(this.settings.get().ttsModelId, '', this.config.threads);
-      return;
-    }
     const sttId = this.settings.get().sttModelId;
     const ttsId = this.settings.get().ttsModelId;
+    log.info(`Speech models: ${MODEL_CATALOG[sttId].name} (STT), ${MODEL_CATALOG[ttsId].name} (TTS)`);
+    if (this.config.fakeSpeech || this.backend instanceof FakeSpeechBackend) {
+      await this.backend.loadStt(sttId, '', this.config.threads);
+      await this.backend.loadTts(ttsId, '', this.config.threads);
+      log.info('Fake speech engine is ready (INAUDIO_FAKE_SPEECH=1).');
+      return;
+    }
+    log.info(`Looking for models in ${this.config.paths.models}`);
     await this.models.discover(sttId);
     await this.models.discover(ttsId);
-    if (this.config.downloadModels) {
-      void this.prepare(sttId, 'stt').catch((error) => {
-        this.message = error instanceof Error ? error.message : String(error);
-      });
-      void this.prepare(ttsId, 'tts').catch(() => undefined);
+    void this.startModel(sttId, 'stt').catch((error) => {
+      this.message = error instanceof Error ? error.message : String(error);
+    });
+    void this.startModel(ttsId, 'tts').catch((error) => {
+      this.message ??= error instanceof Error ? error.message : String(error);
+    });
+  }
+
+  private startModel(id: ModelId, kind: 'stt' | 'tts'): Promise<void> {
+    if (!this.models.isInstalled(id) && !this.config.downloadModels) {
+      log.info(
+        `${MODEL_CATALOG[id].name} is not installed. Download it into ${this.config.paths.models} or set INAUDIO_DOWNLOAD_MODELS=1.`,
+      );
+      return Promise.resolve();
     }
+    return kind === 'stt' ? this.ensureStt() : this.ensureTts();
   }
 
   status(authenticated: boolean): WebStatus {
@@ -282,6 +299,7 @@ export class SpeechService {
       name: model.name,
       kind: model.kind,
       loaded,
+      ...(this.loadError[model.kind] ? { error: this.loadError[model.kind] } : {}),
     };
   }
 
@@ -294,11 +312,34 @@ export class SpeechService {
   }
 
   private async prepare(id: ModelId, kind: 'stt' | 'tts'): Promise<void> {
+    const name = MODEL_CATALOG[id].name;
     this.message = undefined;
-    await this.models.ensure(id);
-    const dir = this.models.directory(id);
-    if (kind === 'stt') await this.backend.loadStt(id, dir, this.config.threads);
-    else await this.backend.loadTts(id, dir, this.config.threads);
+    log.info(`Preparing ${name} (${kind})`);
+    try {
+      await this.models.ensure(id);
+      const dir = this.models.directory(id);
+      log.info(`Loading ${name} from ${dir}`);
+      if (kind === 'stt') await this.backend.loadStt(id, dir, this.config.threads);
+      else await this.backend.loadTts(id, dir, this.config.threads);
+      delete this.loadError[kind];
+      log.info(`Loaded ${name}`);
+    } catch (error) {
+      this.loadError[kind] = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to load ${name}`, error);
+      throw error;
+    }
+  }
+
+  private logModelProgress(progress: ModelProgress): void {
+    if (progress.state === 'downloading') {
+      const bucket = downloadProgressBucket(progress);
+      if (this.downloadBucket.get(progress.id) === bucket && bucket < 10) return;
+      this.downloadBucket.set(progress.id, bucket);
+    }
+    const line = formatModelProgress(MODEL_CATALOG[progress.id]?.name ?? progress.id, progress);
+    if (!line) return;
+    if (progress.state === 'error') log.error(line);
+    else log.info(line);
   }
 
   private ensureStt(): Promise<void> {
