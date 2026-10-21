@@ -10,6 +10,8 @@ export interface RecorderOptions {
   /** Chromium's voice processing; all on unless the audio settings say otherwise. */
   processing?: MicProcessing;
   onLevel(level: number): void;
+  /** Each 16 kHz chunk, for a live transcript that cannot wait until stop. */
+  onChunk?(chunk: Float32Array): void;
 }
 
 const DEFAULT_PROCESSING: MicProcessing = {
@@ -35,7 +37,7 @@ export class Recorder {
     return this.startedAt ? performance.now() - this.startedAt : 0;
   }
 
-  async start({ deviceId, gain, processing = DEFAULT_PROCESSING, onLevel }: RecorderOptions): Promise<void> {
+  async start({ deviceId, gain, processing = DEFAULT_PROCESSING, onLevel, onChunk }: RecorderOptions): Promise<void> {
     this.chunks = [];
     this.length = 0;
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, processing) });
@@ -49,6 +51,7 @@ export class Recorder {
         this.chunks.push(data.chunk);
         this.length += data.chunk.length;
         onLevel(Math.min(1, data.peak));
+        onChunk?.(data.chunk);
       };
       source.connect(gainNode).connect(this.node);
       this.startedAt = performance.now();

@@ -60,6 +60,20 @@ npm run package:release  # Build the electron-builder package for your current O
 
 Pick a model during setup and grant microphone access when prompted.
 
+## Self-host in a browser
+
+A Node server and a small website reuse the same sherpa-onnx models. Family members can open it in Safari or Chrome — no install, no terminal on their computer. Desktop-only features (typing into other apps, system audio, the tray) stay in the Electron app.
+
+```sh
+docker compose up --build
+```
+
+Open [http://localhost:8080](http://localhost:8080) on the host. The first start downloads the speech models. Other devices need HTTPS or Tailscale for the microphone; see [docs/self-hosting.md](docs/self-hosting.md).
+
+```sh
+npm run web   # without Docker: build the site and serve it
+```
+
 ## Build with us
 
 Small fixes, platform testing, and clear bug reports help. Read the [contribution guide](CONTRIBUTING.md), [community guidelines](CODE_OF_CONDUCT.md), and [release process](.github/RELEASING.md). Report vulnerabilities through the [security policy](SECURITY.md).

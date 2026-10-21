@@ -91,5 +91,8 @@ typings/
 # Electron-Forge
 out/
 
+# Local web-server data
+.inaudio-web/
+
 # Local design mockups and their renders; never committed
 design-previews/

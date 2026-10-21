@@ -1,0 +1,12 @@
+.git
+.github
+.vite
+out
+node_modules
+release-assets
+data
+.inaudio-web
+*.log
+design-previews
+.env
+.env.*
