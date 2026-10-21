@@ -4,18 +4,21 @@ import { phonemize as espeakPhonemize } from 'phonemizer';
 import {
   BROWSER_TTS_MODEL_ID,
   BROWSER_TTS_URL_PREFIX,
-  BROWSER_TTS_VOICE_BYTES,
+  BROWSER_TTS_VOICE_WIDTH,
   browserTtsVoiceUrl,
   isEnglishKokoroVoice,
+  parseEnglishVoicePack,
 } from '@shared/web/browser-tts';
 import {
   encodeKokoroPhonemes,
   isEnglishIpa,
   kokoroEspeakLang,
+  KOKORO_SAMPLE_RATE,
   kokoroStyleOffset,
   phonemizeForKokoro,
   textNeedsEnglishIpa,
 } from '@shared/web/kokoro-phonemes';
+import { kokoroDtype } from '@shared/web/read-aloud-engine';
 import { requestUrl, rewriteFetchInput } from '@shared/web/model-url';
 import { ORT_URL_PREFIX } from '@shared/web/ort-runtime';
 import { voiceErrorText, workerFailureText } from '@shared/web/voice-error';
@@ -79,8 +82,9 @@ async function handle(message: KokoroWorkerIn): Promise<void> {
       hfEnv.backends.onnx.wasm.wasmPaths = WASM_PATHS;
     }
     if (message.device === 'webgpu') await ensureWebGpu();
+    const dtype = kokoroDtype(message.device);
     tts = await KokoroTTS.from_pretrained(BROWSER_TTS_MODEL_ID, {
-      dtype: 'q8',
+      dtype,
       device: message.device,
       progress_callback: (report) => {
         if (!report || typeof report !== 'object') return;
@@ -90,7 +94,7 @@ async function handle(message: KokoroWorkerIn): Promise<void> {
         if (total > 0) post({ type: 'progress', file, loaded, total });
       },
     });
-    post({ type: 'ready', device: message.device, threads, isolated });
+    post({ type: 'ready', device: message.device, dtype, threads, isolated });
     return;
   }
   if (message.type === 'speak') {
@@ -140,14 +144,16 @@ async function speakEnglish(
   );
   const pack = await loadEnglishVoice(voice);
   const offset = kokoroStyleOffset(ids.length);
-  const style = pack.subarray(offset, offset + 256);
-  if (style.length !== 256) throw new Error(`The on-device voice "${voice}" has no style for this sentence.`);
+  const style = pack.slice(offset, offset + BROWSER_TTS_VOICE_WIDTH);
+  if (style.length !== BROWSER_TTS_VOICE_WIDTH) {
+    throw new Error(`The on-device voice "${voice}" has no style for this sentence.`);
+  }
   const { waveform } = await session.model({
     input_ids: inputIds,
-    style: new Tensor('float32', style, [1, 256]),
+    style: new Tensor('float32', style, [1, BROWSER_TTS_VOICE_WIDTH]),
     speed: new Tensor('float32', [speed], [1]),
   });
-  return { samples: floatSamples(waveform), sampleRate: 24_000, phonemes, voice };
+  return { samples: floatSamples(waveform), sampleRate: KOKORO_SAMPLE_RATE, phonemes, voice };
 }
 
 async function loadEnglishVoice(name: string): Promise<Float32Array> {
@@ -156,11 +162,7 @@ async function loadEnglishVoice(name: string): Promise<Float32Array> {
   const url = new URL(browserTtsVoiceUrl(name), self.location.origin).href;
   const response = await fetch(url);
   if (!response.ok) throw fetchFailed(url, response.status);
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength !== BROWSER_TTS_VOICE_BYTES) {
-    throw new Error(`The on-device voice "${name}" is ${buffer.byteLength} bytes, not an English style pack.`);
-  }
-  const pack = new Float32Array(buffer);
+  const pack = parseEnglishVoicePack(await response.arrayBuffer(), name);
   voicePacks.set(name, pack);
   return pack;
 }
@@ -174,9 +176,12 @@ async function ensureWebGpu(): Promise<void> {
 
 function floatSamples(audio: { audio?: Float32Array; data?: Float32Array | number[] }): Float32Array {
   const raw = audio.audio ?? audio.data;
-  if (raw instanceof Float32Array) return raw;
-  if (Array.isArray(raw)) return Float32Array.from(raw);
-  throw new Error('The on-device voice returned no audio.');
+  const samples = raw instanceof Float32Array ? raw.slice() : Array.isArray(raw) ? Float32Array.from(raw) : null;
+  if (!samples?.length) throw new Error('The on-device voice returned no audio.');
+  for (const value of samples) {
+    if (!Number.isFinite(value)) throw new Error('The on-device voice returned non-finite audio.');
+  }
+  return samples;
 }
 
 async function cachedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

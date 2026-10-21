@@ -15,8 +15,11 @@ export function canUseBrowserTts(): boolean {
   return typeof Worker !== 'undefined' && typeof WebAssembly !== 'undefined';
 }
 
-/** Safari on iPhone keeps a tight tab budget; skip WebGPU so WASM and the model can share memory. */
+/**
+ * q8 on WebGPU produces noise on the multilingual v1.0 ONNX. This Inaudio only
+ * ships q8, so start on WASM. WebGPU is fp32 and only used when that file is on
+ * the host and the loader asks for it.
+ */
 export function preferredKokoroDevice(): 'wasm' | 'webgpu' {
-  if (isAppleMobile()) return 'wasm';
-  return hasWebGpu() ? 'webgpu' : 'wasm';
+  return 'wasm';
 }
