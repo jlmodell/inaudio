@@ -45,13 +45,17 @@ Pick one of these. Both keep traffic on machines you already trust.
 
 Install Tailscale on the host and on the Mac or Windows computer. Open `http://<hostname>.<tailnet>.ts.net:8080` — or, if you turn on Tailscale Serve / HTTPS, the `https://` URL it prints. That URL is enough for the microphone.
 
+Read-aloud streams sentence audio as it is synthesized. The server flushes each chunk and pads the first line so proxies (including Tailscale Serve) do not hold the whole story until the end. `docker compose logs` prints model load, warmup, per-sentence synth time, and time to first audio.
+
 ### Caddy in front (LAN HTTPS)
 
 Point a name you control at the host, or use a local name with a certificate Caddy manages. Example next to this repo:
 
 ```caddyfile
 inaudio.home.arpa {
-  reverse_proxy 127.0.0.1:8080
+  reverse_proxy 127.0.0.1:8080 {
+    flush_interval -1
+  }
   # Caddy will need a certificate this browser trusts.
   # On a home LAN, `tls internal` plus installing Caddy's root CA on each device works.
 }

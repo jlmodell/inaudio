@@ -40,6 +40,15 @@ test('joins short fragments to the next sentence', () => {
   assert.equal(segments.length, 1);
 });
 
+test('does not grow the first segment past FIRST_SEGMENT_CHARS', () => {
+  const { segments } = check(
+    'The lighthouse keeper lit the lamp. He had kept that same watch for thirty years on those stairs, and the climb still left him short of breath every evening.',
+  );
+  assert.ok(segments.length >= 2);
+  assert.ok(segments[0].text.length <= FIRST_SEGMENT_CHARS);
+  assert.match(segments[0].text, /lighthouse keeper/);
+});
+
 test('splits an overlong sentence at a space, never inside a word', () => {
   const words = Array.from({ length: 400 }, (_, i) => `word${i}`).join(' ');
   const { segments } = check(`${words}.`);

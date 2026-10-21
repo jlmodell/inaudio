@@ -161,6 +161,9 @@ async function route(
   json(res, 404, { error: 'Not found' });
 }
 
+/** Proxies such as Tailscale Serve and nginx hold the first few KB. */
+export const SPEAK_STREAM_PAD = ' '.repeat(16 * 1024);
+
 async function streamSpeak(
   res: http.ServerResponse,
   speech: SpeechService,
@@ -168,27 +171,46 @@ async function streamSpeak(
   voiceId: string,
   speed: number,
 ): Promise<void> {
-  const chunks = speech.speakSegments(text, voiceId, speed);
-  const first = await chunks.next();
-  if (first.done) return json(res, 400, { error: 'Paste some text to read aloud.' });
+  const started = Date.now();
+  const segments = speech.planSpeak(text);
+  if (!segments.length) return json(res, 400, { error: 'Paste some text to read aloud.' });
   res.writeHead(200, {
     'Content-Type': 'application/x-ndjson; charset=utf-8',
-    'Cache-Control': 'no-store',
+    'Cache-Control': 'no-store, no-transform',
+    'Content-Encoding': 'identity',
     'X-Accel-Buffering': 'no',
   });
-  const write = (chunk: { index: number; count: number; samples: Float32Array; sampleRate: number }) => {
-    const wav = encodeWav(chunk.samples, chunk.sampleRate);
-    return res.write(`${JSON.stringify({ index: chunk.index, count: chunk.count, sampleRate: chunk.sampleRate, wav: wav.toString('base64') })}\n`);
-  };
+  res.socket?.setNoDelay(true);
+  res.flushHeaders();
+  flushLine(
+    res,
+    JSON.stringify({ type: 'start', index: -1, count: segments.length, sampleRate: 0, wav: '', pad: SPEAK_STREAM_PAD }),
+  );
+  log.info(`Speak stream opened in ${Date.now() - started}ms (${segments.length} segments, first ${segments[0]?.text.length ?? 0} chars)`);
+  let firstAudio = true;
   try {
-    write(first.value);
-    for await (const chunk of chunks) {
+    for await (const chunk of speech.speakPrepared(segments, voiceId, speed)) {
       if (!res.writable) break;
-      write(chunk);
+      const wav = encodeWav(chunk.samples, chunk.sampleRate);
+      flushLine(
+        res,
+        JSON.stringify({ index: chunk.index, count: chunk.count, sampleRate: chunk.sampleRate, wav: wav.toString('base64') }),
+      );
+      if (firstAudio) {
+        log.info(`First audio flushed at ${Date.now() - started}ms (${chunk.text.length} chars)`);
+        firstAudio = false;
+      }
     }
   } finally {
     if (!res.writableEnded) res.end();
   }
+}
+
+function flushLine(res: http.ServerResponse, line: string): void {
+  res.write(`${line}\n`);
+  res.socket?.setNoDelay(true);
+  const flushable = res as http.ServerResponse & { flush?: () => void };
+  flushable.flush?.();
 }
 
 async function serveStatic(res: http.ServerResponse, root: string, pathname: string): Promise<void> {

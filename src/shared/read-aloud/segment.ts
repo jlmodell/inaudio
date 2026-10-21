@@ -9,7 +9,7 @@ export interface TextSegment {
 /** Longest segment sent to the speech engine in one request. */
 export const MAX_SEGMENT_CHARS = 400;
 /** The first segment is kept shorter so the first audio arrives sooner. */
-export const FIRST_SEGMENT_CHARS = 200;
+export const FIRST_SEGMENT_CHARS = 120;
 /** Sentences shorter than this are joined to the next one, so fragments like "e.g." do not stand alone. */
 export const MIN_SEGMENT_CHARS = 60;
 
@@ -61,10 +61,12 @@ export function segmentText(text: string, max = MAX_SEGMENT_CHARS): TextSegment[
     for (const { segment, index } of sentences.segment(paragraph)) {
       const sentence = trimmed(text, offset + index, offset + index + segment.length);
       if (!sentence) continue;
-      const limit: number = out.length === 0 && current === null ? Math.min(max, FIRST_SEGMENT_CHARS) : max;
+      const first = out.length === 0;
+      const limit = first && current === null ? Math.min(max, FIRST_SEGMENT_CHARS) : max;
+      const joinLimit = first ? Math.min(max, FIRST_SEGMENT_CHARS) : max;
       const parts: TextSegment[] = splitLong(text, sentence, limit);
       for (const part of parts) {
-        if (current && current.text.length < MIN_SEGMENT_CHARS && part.end - current.start <= max) {
+        if (current && current.text.length < MIN_SEGMENT_CHARS && part.end - current.start <= joinLimit) {
           current = { text: text.slice(current.start, part.end), start: current.start, end: part.end };
           continue;
         }

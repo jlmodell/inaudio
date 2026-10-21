@@ -209,10 +209,13 @@ if (!skipWithoutBuild()) {
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') ?? '', /ndjson/);
     const body = await response.text();
-    const chunks = body
+    const lines = body
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line));
+    assert.equal(lines[0].type, 'start');
+    assert.ok((lines[0].pad ?? '').length >= 16 * 1024);
+    const chunks = lines.filter((line) => line.wav);
     assert.ok(chunks.length >= 2);
     assert.equal(chunks[0].index, 0);
     assert.equal(chunks[0].count, chunks.length);
@@ -224,7 +227,10 @@ if (!skipWithoutBuild()) {
       assert.ok(wav.byteLength > 44);
       assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
     }
-    assert.match(server.logs.join(''), /Reading aloud: \d+ segments?/);
+    const logs = server.logs.join('');
+    assert.match(logs, /Speak stream opened in \d+ms/);
+    assert.match(logs, /First audio flushed at \d+ms/);
+    assert.match(logs, /Segment 1\/\d+: \d+ chars in \d+ms/);
   });
 }
 

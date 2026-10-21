@@ -6,12 +6,14 @@ import { Button } from '@renderer/components/ui/button';
 import { Notice, PageHeader } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
-import { useSettings, useUpdateSettings } from '../queries';
+import { useSettings, useStatus, useUpdateSettings } from '../queries';
 import { SpeakQueue } from '../speak-queue';
 
 export function ReadAloudPage() {
   const { data: settings } = useSettings();
+  const { data: status } = useStatus();
   const update = useUpdateSettings();
+  const voiceReady = !!status?.tts.loaded;
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -96,10 +98,16 @@ export function ReadAloudPage() {
         rows={10}
         className="w-full resize-y rounded-[12px] border border-line bg-surface px-4 py-3 text-base leading-relaxed outline-none focus:border-accent"
       />
+      {status && !voiceReady && (status.tts.error || status.message) && (
+        <Notice tone="danger">{status.tts.error || status.message}</Notice>
+      )}
+      {status && !voiceReady && !status.tts.error && !status.message && (
+        <Notice>The voice model is still loading.</Notice>
+      )}
       {error && <Notice tone="danger">{error}</Notice>}
       <div className="flex flex-wrap gap-2">
         {phase === 'idle' || phase === 'loading' ? (
-          <Button variant="primary" onClick={() => void play()} disabled={!text.trim() || phase === 'loading'}>
+          <Button variant="primary" onClick={() => void play()} disabled={!text.trim() || !voiceReady || phase === 'loading'}>
             <Play /> {phase === 'loading' ? 'Preparing…' : 'Read aloud'}
           </Button>
         ) : (
