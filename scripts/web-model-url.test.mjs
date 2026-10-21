@@ -20,6 +20,11 @@ test('rewriteModelUrl keeps same-origin fetches and maps Hugging Face onto the h
     ),
     `${origin}/ort/ort-wasm-simd-threaded.wasm`,
   );
+  assert.equal(rewriteModelUrl('data:application/wasm;base64,AAA', origin), 'data:application/wasm;base64,AAA');
+  assert.equal(
+    rewriteModelUrl('blob:https://inaudio.example/2f3e4d', origin),
+    'blob:https://inaudio.example/2f3e4d',
+  );
   assert.throws(
     () => rewriteModelUrl('https://evil.example/model.onnx', origin),
     /leave this Inaudio \(https:\/\/evil\.example\/model\.onnx\)/,

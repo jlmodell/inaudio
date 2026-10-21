@@ -1,6 +1,14 @@
-import { env as hfEnv } from '@huggingface/transformers';
+import { env as hfEnv, Tensor } from '@huggingface/transformers';
 import { env as kokoroEnv, KokoroTTS } from 'kokoro-js';
+import { phonemize as espeakPhonemize } from 'phonemizer';
 import { BROWSER_TTS_MODEL_ID, BROWSER_TTS_URL_PREFIX } from '@shared/web/browser-tts';
+import {
+  encodeKokoroPhonemes,
+  isEnglishIpa,
+  kokoroEspeakLang,
+  phonemizeForKokoro,
+  textNeedsEnglishIpa,
+} from '@shared/web/kokoro-phonemes';
 import { rewriteModelUrl } from '@shared/web/model-url';
 import { ORT_URL_PREFIX } from '@shared/web/ort-runtime';
 import { voiceErrorText } from '@shared/web/voice-error';
@@ -64,7 +72,7 @@ async function handle(message: KokoroWorkerIn): Promise<void> {
     if (!tts) throw new Error('The on-device voice is not loaded.');
     const started = Date.now();
     try {
-      const audio = await tts.generate(message.text, {
+      const audio = await tts.generate_from_ids(await englishInputIds(message.text, message.voice), {
         voice: message.voice as 'af_heart',
         speed: message.speed,
       });
@@ -75,6 +83,20 @@ async function handle(message: KokoroWorkerIn): Promise<void> {
       postError(error, message.id);
     }
   }
+}
+
+async function englishInputIds(text: string, voice: string): Promise<Tensor> {
+  const language = kokoroEspeakLang(voice);
+  const phonemes = await phonemizeForKokoro(text, language, espeakPhonemize);
+  if (textNeedsEnglishIpa(text) && !isEnglishIpa(phonemes)) {
+    throw new Error('The on-device voice did not turn this English into phonemes (eSpeak-NG).');
+  }
+  const ids = encodeKokoroPhonemes(phonemes);
+  return new Tensor(
+    'int64',
+    BigInt64Array.from(ids, (id) => BigInt(id)),
+    [1, ids.length],
+  );
 }
 
 async function ensureWebGpu(): Promise<void> {
