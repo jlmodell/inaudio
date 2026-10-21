@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { KOKORO_VOICES, type VoiceId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
 import { READ_SPEED_PRESETS, readAloudProgressPercent } from '@shared/web/read-aloud-engine';
+import { voiceErrorText } from '@shared/web/voice-error';
 import { Button } from '@renderer/components/ui/button';
 import { Notice, PageHeader } from '@renderer/components/ui/layout';
 import { Progress } from '@renderer/components/ui/progress';
@@ -11,7 +12,10 @@ import { Slider } from '@renderer/components/ui/slider';
 import { Switch } from '@renderer/components/ui/switch';
 import { useSettings, useStatus, useUpdateSettings } from '../queries';
 import { IsolationNotice, ReadAloudDiagLine } from '../tts/diag-line';
+import { VoiceErrorBox } from '../tts/error-box';
 import { ReadAloudPlayer, type ReadAloudProgress } from '../tts/player';
+import { readDeviceFallback, subscribeDeviceFallback, writeDeviceFallback } from '../tts/device-fallback';
+import { resetKokoroHost } from '../tts/kokoro-host';
 
 export function ReadAloudPage() {
   const { data: settings } = useSettings();
@@ -24,7 +28,8 @@ export function ReadAloudPage() {
   const [word, setWord] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [fallback, setFallback] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(readDeviceFallback);
   const [progress, setProgress] = useState<ReadAloudProgress | null>(null);
   const player = useRef<ReadAloudPlayer | null>(null);
 
@@ -35,13 +40,15 @@ export function ReadAloudPage() {
     [],
   );
 
+  useEffect(() => subscribeDeviceFallback(setUsingFallback), []);
+
   if (!settings) return null;
 
-  const play = async () => {
+  const play = async (retryOnDevice = false) => {
     const clipped = text.trim().slice(0, MAX_READ_ALOUD_CHARS);
     if (!clipped) return;
     setError(null);
-    setNotice(null);
+    if (retryOnDevice) setFallback(null);
     setProgress(null);
     setWord('');
     setPhase('loading');
@@ -54,6 +61,7 @@ export function ReadAloudPage() {
         speed: settings.speed,
         engine,
         buffer: settings.readAloudBuffer,
+        retryOnDevice,
       },
       {
         onProgress: (value) => setProgress(value),
@@ -68,18 +76,24 @@ export function ReadAloudPage() {
           setWord('');
         },
         onFallback: (_used, reason) => {
-          setNotice(
-            `This device could not load the on-device voice, so Inaudio is using the browser's built-in voice. ${reason}`,
-          );
+          setFallback(reason);
         },
         onError: (caught) => {
           setPhase('idle');
           setProgress(null);
           setWord('');
-          setError(caught.message);
+          setError(voiceErrorText(caught));
         },
       },
     );
+  };
+
+  const retryOnDevice = () => {
+    writeDeviceFallback(null);
+    resetKokoroHost();
+    setFallback(null);
+    setError(null);
+    void play(true);
   };
 
   const togglePause = () => {
@@ -104,6 +118,7 @@ export function ReadAloudPage() {
   const blocked = needsServer && !serverReady;
   const percent = progress ? readAloudProgressPercent(progress.loaded, progress.total) : 0;
   const speedReading = settings.speedReading;
+  const showRetry = engine === 'browser' && (usingFallback === 'speech' || !!fallback || !!error);
 
   return (
     <div className="grid gap-6">
@@ -178,7 +193,7 @@ export function ReadAloudPage() {
         />
       )}
       {needsServer && status && !serverReady && (status.tts.error || status.message) && (
-        <Notice tone="danger">{status.tts.error || status.message}</Notice>
+        <VoiceErrorBox title="The server voice is not ready." detail={status.tts.error || status.message || ''} />
       )}
       {needsServer && status && !serverReady && !status.tts.error && !status.message && (
         <Notice>The server voice is still loading.</Notice>
@@ -193,8 +208,21 @@ export function ReadAloudPage() {
           <Progress value={percent} label="Voice download" />
         </div>
       )}
-      {notice && <Notice>{notice}</Notice>}
-      {error && <Notice tone="danger">{error}</Notice>}
+      {fallback && (
+        <VoiceErrorBox
+          tone="warning"
+          title="This device could not load the on-device voice, so Inaudio is using the browser's built-in voice for now. Reload this page or try again to load Kokoro."
+          detail={fallback}
+          onRetry={showRetry ? retryOnDevice : undefined}
+        />
+      )}
+      {error && (
+        <VoiceErrorBox
+          title="Could not read that aloud."
+          detail={error}
+          onRetry={showRetry ? retryOnDevice : undefined}
+        />
+      )}
       <IsolationNotice />
       <ReadAloudDiagLine />
       <div className="flex flex-wrap gap-2">
@@ -212,6 +240,11 @@ export function ReadAloudPage() {
               <Square /> Stop
             </Button>
           </>
+        )}
+        {showRetry && phase !== 'loading' && (
+          <Button onClick={retryOnDevice} disabled={!text.trim()}>
+            Try on-device voice again
+          </Button>
         )}
       </div>
     </div>

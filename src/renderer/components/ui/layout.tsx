@@ -81,9 +81,9 @@ export function StatusDot({ tone }: { tone: Tone }) {
 
 export function Notice({ tone = 'warning', children, action }: { tone?: Tone; children: ReactNode; action?: ReactNode }) {
   return (
-    <div role="status" className={cn('flex items-center justify-between gap-4 rounded-lg px-4 py-3 text-sm', TONES[tone])}>
-      <div>{children}</div>
-      {action}
+    <div role="status" className={cn('flex items-start justify-between gap-4 rounded-lg px-4 py-3 text-sm', TONES[tone])}>
+      <div className="min-w-0 flex-1 whitespace-pre-wrap break-words">{children}</div>
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }

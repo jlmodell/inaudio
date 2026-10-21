@@ -9,6 +9,7 @@ import {
   type ReadAloudEngine,
   type SentenceTiming,
 } from '@shared/web/read-aloud-engine';
+import { logVoiceError } from '@shared/web/voice-error';
 import { SpeakQueue } from '../speak-queue';
 import { AudioQueue } from './audio-queue';
 import { canUseBrowserTts, hasWebSpeech } from './detect';
@@ -25,6 +26,7 @@ export type ReadAloudStart = {
   speed: number;
   engine: ReadAloudEngine;
   buffer?: number;
+  retryOnDevice?: boolean;
 };
 
 type PlayerHooks = {
@@ -49,21 +51,25 @@ export class ReadAloudPlayer {
     if (!text) return;
     const speed = clampReadSpeed(input.speed);
     const buffer = clampAhead(input.buffer ?? DEFAULT_READ_ALOUD_BUFFER);
-    const engine = effectiveReadAloudEngine(input.engine, readDeviceFallback());
+    if (input.retryOnDevice) {
+      writeDeviceFallback(null);
+      resetKokoroHost();
+    }
+    const engine = effectiveReadAloudEngine(input.engine, input.retryOnDevice ? null : readDeviceFallback());
     try {
       if (engine === 'server') return this.startServer({ ...input, text, speed, buffer }, hooks);
       if (engine === 'speech') return this.startSpeech(text, speed, hooks);
       await this.startBrowser(text, input.voiceId, speed, buffer, hooks);
     } catch (error) {
       if (this.stopped) return;
-      const reason = error instanceof Error ? error.message : String(error);
+      const detail = logVoiceError('on-device voice failed', error);
       if (engine === 'browser' && hasWebSpeech()) {
         writeDeviceFallback('speech');
-        hooks.onFallback?.('speech', reason);
+        hooks.onFallback?.('speech', detail);
         if (this.stopped) return;
         return this.startSpeech(text, speed, hooks);
       }
-      hooks.onError(error instanceof Error ? error : new Error('Could not read that aloud'));
+      hooks.onError(error instanceof Error ? error : new Error(detail));
     }
   }
 

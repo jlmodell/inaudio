@@ -1,5 +1,6 @@
 const HF_PREFIX = 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/';
 const LOCAL_PREFIX = '/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/';
+const ORT_FILE = /^ort-wasm[\w.-]*\.(wasm|mjs)$/;
 
 export function rewriteModelUrl(url: string, origin: string): string {
   let parsed: URL;
@@ -9,7 +10,19 @@ export function rewriteModelUrl(url: string, origin: string): string {
     return url;
   }
   if (parsed.origin === origin) return parsed.href;
-  if (!url.startsWith(HF_PREFIX)) throw new Error('The on-device voice tried to leave this Inaudio.');
-  const rest = url.replace(/^https:\/\/huggingface\.co\/onnx-community\/Kokoro-82M-v1\.0-ONNX\/resolve\/[^/]+\//, '').split('?')[0];
-  return `${origin}${LOCAL_PREFIX}${rest}`;
+  if (url.startsWith(HF_PREFIX) || isKokoroHuggingFace(parsed)) {
+    const rest = parsed.pathname.replace(/^\/onnx-community\/Kokoro-82M-v1\.0-ONNX\/resolve\/[^/]+\//, '').split('?')[0];
+    if (rest && rest !== parsed.pathname) return `${origin}${LOCAL_PREFIX}${rest}`;
+  }
+  const name = parsed.pathname.split('/').pop() ?? '';
+  if (ORT_FILE.test(name) && isOrtCdn(parsed.hostname)) return `${origin}/ort/${name}`;
+  throw new Error(`The on-device voice tried to leave this Inaudio (${parsed.origin}${parsed.pathname}).`);
+}
+
+function isKokoroHuggingFace(parsed: URL): boolean {
+  return parsed.hostname === 'huggingface.co' && parsed.pathname.includes('/onnx-community/Kokoro-82M-v1.0-ONNX/');
+}
+
+function isOrtCdn(host: string): boolean {
+  return host === 'cdn.jsdelivr.net' || host === 'unpkg.com' || host.endsWith('.jsdelivr.net');
 }
