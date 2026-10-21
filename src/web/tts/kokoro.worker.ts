@@ -1,11 +1,18 @@
 import { env as hfEnv, Tensor } from '@huggingface/transformers';
 import { env as kokoroEnv, KokoroTTS } from 'kokoro-js';
 import { phonemize as espeakPhonemize } from 'phonemizer';
-import { BROWSER_TTS_MODEL_ID, BROWSER_TTS_URL_PREFIX } from '@shared/web/browser-tts';
+import {
+  BROWSER_TTS_MODEL_ID,
+  BROWSER_TTS_URL_PREFIX,
+  BROWSER_TTS_VOICE_BYTES,
+  browserTtsVoiceUrl,
+  isEnglishKokoroVoice,
+} from '@shared/web/browser-tts';
 import {
   encodeKokoroPhonemes,
   isEnglishIpa,
   kokoroEspeakLang,
+  kokoroStyleOffset,
   phonemizeForKokoro,
   textNeedsEnglishIpa,
 } from '@shared/web/kokoro-phonemes';
@@ -72,31 +79,71 @@ async function handle(message: KokoroWorkerIn): Promise<void> {
     if (!tts) throw new Error('The on-device voice is not loaded.');
     const started = Date.now();
     try {
-      const audio = await tts.generate_from_ids(await englishInputIds(message.text, message.voice), {
-        voice: message.voice as 'af_heart',
-        speed: message.speed,
-      });
-      const samples = floatSamples(audio);
-      const sampleRate = audio.sampling_rate || 24_000;
-      post({ type: 'audio', id: message.id, samples, sampleRate, generateMs: Date.now() - started }, [samples.buffer]);
+      const spoken = await speakEnglish(tts, message.text, message.voice, message.speed);
+      post(
+        {
+          type: 'audio',
+          id: message.id,
+          samples: spoken.samples,
+          sampleRate: spoken.sampleRate,
+          generateMs: Date.now() - started,
+          phonemes: spoken.phonemes,
+          voice: spoken.voice,
+        },
+        [spoken.samples.buffer],
+      );
     } catch (error) {
       postError(error, message.id);
     }
   }
 }
 
-async function englishInputIds(text: string, voice: string): Promise<Tensor> {
+const voicePacks = new Map<string, Float32Array>();
+
+async function speakEnglish(
+  session: KokoroTTS,
+  text: string,
+  voice: string,
+  speed: number,
+): Promise<{ samples: Float32Array; sampleRate: number; phonemes: string; voice: string }> {
+  if (!isEnglishKokoroVoice(voice)) {
+    throw new Error(`The on-device voice "${voice}" is not an English Kokoro voice.`);
+  }
   const language = kokoroEspeakLang(voice);
   const phonemes = await phonemizeForKokoro(text, language, espeakPhonemize);
   if (textNeedsEnglishIpa(text) && !isEnglishIpa(phonemes)) {
     throw new Error('The on-device voice did not turn this English into phonemes (eSpeak-NG).');
   }
   const ids = encodeKokoroPhonemes(phonemes);
-  return new Tensor(
+  const inputIds = new Tensor(
     'int64',
     BigInt64Array.from(ids, (id) => BigInt(id)),
     [1, ids.length],
   );
+  const pack = await loadEnglishVoice(voice);
+  const offset = kokoroStyleOffset(ids.length);
+  const style = pack.subarray(offset, offset + 256);
+  if (style.length !== 256) throw new Error(`The on-device voice "${voice}" has no style for this sentence.`);
+  const { waveform } = await session.model({
+    input_ids: inputIds,
+    style: new Tensor('float32', style, [1, 256]),
+    speed: new Tensor('float32', [speed], [1]),
+  });
+  return { samples: floatSamples(waveform), sampleRate: 24_000, phonemes, voice };
+}
+
+async function loadEnglishVoice(name: string): Promise<Float32Array> {
+  const hit = voicePacks.get(name);
+  if (hit) return hit;
+  const response = await fetch(browserTtsVoiceUrl(name));
+  if (!response.ok) throw fetchFailed(browserTtsVoiceUrl(name), response.status);
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength !== BROWSER_TTS_VOICE_BYTES) {
+    throw new Error(`The on-device voice "${name}" is ${buffer.byteLength} bytes, not an English style pack.`);
+  }
+  const pack = new Float32Array(buffer);
+  voicePacks.set(name, pack);
+  return pack;
 }
 
 async function ensureWebGpu(): Promise<void> {

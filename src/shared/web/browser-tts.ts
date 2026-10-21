@@ -39,8 +39,31 @@ export const BROWSER_TTS_FILES: readonly BrowserTtsFile[] = [
 
 export const BROWSER_TTS_BYTES = BROWSER_TTS_FILES.reduce((sum, file) => sum + file.bytes, 0);
 
+/** One English style pack: 510 lengths × 256 floats. */
+export const BROWSER_TTS_VOICE_BYTES = 522_240;
+
+/** American/British only. `zf_`/`zm_` are Chinese; `jf_`/`jm_` are Japanese. */
+export const ENGLISH_KOKORO_VOICE = /^(?:af|am|bf|bm)_[a-z]+$/;
+
+export function isEnglishKokoroVoice(name: string): boolean {
+  return ENGLISH_KOKORO_VOICE.test(name);
+}
+
 export function browserTtsFile(relative: string): BrowserTtsFile | undefined {
   return BROWSER_TTS_FILES.find((file) => file.path === relative);
+}
+
+export function browserTtsVoicePath(name: string): string {
+  if (!isEnglishKokoroVoice(name)) {
+    throw new Error(`The on-device voice "${name}" is not an English Kokoro voice.`);
+  }
+  const relative = `${BROWSER_TTS_MODEL_ID}/voices/${name}.bin`;
+  if (!browserTtsFile(relative)) throw new Error(`The on-device voice "${name}" is not on this Inaudio.`);
+  return relative;
+}
+
+export function browserTtsVoiceUrl(name: string): string {
+  return `${BROWSER_TTS_URL_PREFIX}/${browserTtsVoicePath(name)}`;
 }
 
 export interface BrowserTtsProgress {

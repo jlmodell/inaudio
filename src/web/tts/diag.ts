@@ -1,5 +1,5 @@
 import type { ReadAloudRuntime, SentenceTiming } from '@shared/web/read-aloud-engine';
-import { readAloudRuntimeLabel, sentenceRealtimeFactor } from '@shared/web/read-aloud-engine';
+import { formatSpokenDiag, readAloudRuntimeLabel, sentenceRealtimeFactor } from '@shared/web/read-aloud-engine';
 
 export interface ReadAloudDiag {
   runtime: ReadAloudRuntime | null;
@@ -7,6 +7,8 @@ export interface ReadAloudDiag {
   threads: number;
   buffer: number;
   timings: SentenceTiming[];
+  voice: string | null;
+  phonemes: string | null;
 }
 
 const KEY = 'inaudio.web.readAloudDiag';
@@ -16,7 +18,7 @@ function isolatedNow(): boolean {
 }
 
 function empty(): ReadAloudDiag {
-  return { runtime: null, isolated: isolatedNow(), threads: 0, buffer: 3, timings: [] };
+  return { runtime: null, isolated: isolatedNow(), threads: 0, buffer: 3, timings: [], voice: null, phonemes: null };
 }
 
 function readStored(): ReadAloudDiag {
@@ -30,6 +32,8 @@ function readStored(): ReadAloudDiag {
       threads: parsed.threads ?? 0,
       buffer: parsed.buffer ?? 3,
       timings: Array.isArray(parsed.timings) ? parsed.timings : [],
+      voice: typeof parsed.voice === 'string' ? parsed.voice : null,
+      phonemes: typeof parsed.phonemes === 'string' ? parsed.phonemes : null,
     };
   } catch {
     return empty();
@@ -74,5 +78,6 @@ export function formatReadAloudDiag(diag: ReadAloudDiag): string {
   const engine = diag.runtime ? readAloudRuntimeLabel(diag.runtime) : 'not started';
   const last = diag.timings.at(-1);
   const timing = last ? ` Last sentence: ${formatSentenceTiming(last)}.` : '';
-  return `Voice: ${engine}. Page is ${isolated}${diag.threads ? `, ${diag.threads} thread${diag.threads === 1 ? '' : 's'}` : ''}. Buffer ${diag.buffer}.${timing}`;
+  const spoken = formatSpokenDiag(diag.voice ?? last?.voice, diag.phonemes ?? last?.phonemes);
+  return `Voice: ${engine}. Page is ${isolated}${diag.threads ? `, ${diag.threads} thread${diag.threads === 1 ? '' : 's'}` : ''}. Buffer ${diag.buffer}.${timing}${spoken ? ` ${spoken}.` : ''}`;
 }

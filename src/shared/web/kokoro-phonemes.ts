@@ -174,6 +174,11 @@ export async function phonemizeForKokoro(
   return applyEnglishPhonemeFixups(rendered.join(''), language);
 }
 
+/** Style row in the 510×256 voice pack: token count includes the `$` pads. */
+export function kokoroStyleOffset(tokenCount: number): number {
+  return 256 * Math.min(Math.max(tokenCount - 2, 0), 509);
+}
+
 export function encodeKokoroPhonemes(phonemes: string): number[] {
   const ids = [KOKORO_PAD_ID];
   for (const char of phonemes) {
