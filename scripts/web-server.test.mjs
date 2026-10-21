@@ -67,14 +67,52 @@ async function startServer() {
   };
 }
 
+async function waitReady(base, headers, ms = 5_000) {
+  const deadline = Date.now() + ms;
+  let last = { ready: false };
+  while (Date.now() < deadline) {
+    last = await fetch(`${base}/api/status`, { headers }).then((r) => r.json());
+    if (last.ready) return last;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Speech engine was not ready: ${JSON.stringify(last)}`);
+}
+
 if (!skipWithoutBuild()) {
+  test('password-set first visit returns status for the login page', async (t) => {
+    const server = await startServer();
+    t.after(() => server.close());
+    const base = `http://127.0.0.1:${server.port}`;
+
+    const page = await fetch(`${base}/`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Inaudio/);
+
+    const status = await fetch(`${base}/api/status`).then(async (response) => {
+      assert.equal(response.status, 200);
+      return response.json();
+    });
+    assert.equal(status.authRequired, true);
+    assert.equal(status.authenticated, false);
+    assert.equal(typeof status.ready, 'boolean');
+
+    const history = await fetch(`${base}/api/history`);
+    assert.equal(history.status, 401);
+  });
+
   test('web server transcribes a clip and protects routes', async (t) => {
     const server = await startServer();
     t.after(() => server.close());
     const base = `http://127.0.0.1:${server.port}`;
 
-    const denied = await fetch(`${base}/api/status`);
-    assert.equal(denied.status, 401);
+    const firstVisit = await fetch(`${base}/api/status`);
+    assert.equal(firstVisit.status, 200);
+    const firstStatus = await firstVisit.json();
+    assert.equal(firstStatus.authRequired, true);
+    assert.equal(firstStatus.authenticated, false);
+
+    const locked = await fetch(`${base}/api/history`);
+    assert.equal(locked.status, 401);
 
     const login = await fetch(`${base}/api/login`, {
       method: 'POST',
@@ -86,8 +124,7 @@ if (!skipWithoutBuild()) {
     assert.ok(cookie);
 
     const headers = { Cookie: cookie.split(';', 1)[0] ?? '' };
-    const status = await fetch(`${base}/api/status`, { headers }).then((r) => r.json());
-    assert.equal(status.ready, true);
+    const status = await waitReady(base, headers);
     assert.equal(status.authenticated, true);
 
     const transcribed = await fetch(`${base}/api/transcribe`, {
