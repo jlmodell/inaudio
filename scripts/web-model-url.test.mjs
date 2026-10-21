@@ -13,5 +13,15 @@ test('rewriteModelUrl keeps same-origin fetches and maps Hugging Face onto the h
     ),
     `${origin}/browser-tts/onnx-community/Kokoro-82M-v1.0-ONNX/onnx/model_quantized.onnx`,
   );
-  assert.throws(() => rewriteModelUrl('https://evil.example/model.onnx', origin), /leave this Inaudio/);
+  assert.equal(
+    rewriteModelUrl(
+      'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort-wasm-simd-threaded.wasm',
+      origin,
+    ),
+    `${origin}/ort/ort-wasm-simd-threaded.wasm`,
+  );
+  assert.throws(
+    () => rewriteModelUrl('https://evil.example/model.onnx', origin),
+    /leave this Inaudio \(https:\/\/evil\.example\/model\.onnx\)/,
+  );
 });

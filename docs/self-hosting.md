@@ -51,6 +51,8 @@ Read-aloud on this device downloads the browser voice from your Inaudio on first
 
 The on-device voice needs `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so WASM can use more than one thread. Inaudio sends those headers. Tailscale Serve often drops them; Read aloud then shows “not isolated” / “WASM, 1 thread”. Use Caddy in front and keep the headers, raise the sentence buffer, or switch to this browser’s built-in voice.
 
+If the on-device voice fails, Read aloud shows the full error (copy it, or look for `[inaudio]` in the browser console) and uses the built-in voice for that visit only. Reload the page or tap “Try on-device voice again” to load Kokoro again. WebGPU failures fall back to multi-thread WASM before the built-in voice.
+
 ### Caddy in front (LAN HTTPS)
 
 Point a name you control at the host, or use a local name with a certificate Caddy manages. Example next to this repo:

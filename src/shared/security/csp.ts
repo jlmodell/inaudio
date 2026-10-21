@@ -8,7 +8,7 @@ export function buildContentSecurityPolicy({ dev, wasm = false }: { dev: boolean
     'script-src': [
       "'self'",
       ...(dev ? (["'unsafe-inline'"] as const) : []),
-      ...(wasm ? (["'wasm-unsafe-eval'"] as const) : []),
+      ...(wasm ? (["'wasm-unsafe-eval'", 'blob:'] as const) : []),
     ],
     'style-src': ["'self'", "'unsafe-inline'"],
     'img-src': ["'self'", 'data:'],
