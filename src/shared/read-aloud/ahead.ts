@@ -31,3 +31,10 @@ export function clampAhead(value: number, fallback = DEFAULT_READ_ALOUD_BUFFER):
   if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_READ_ALOUD_BUFFER, Math.max(MIN_READ_ALOUD_BUFFER, Math.round(value)));
 }
+
+/** Exclusive end of the prefetch window: the current sentence plus those kept ahead. */
+export function aheadEnd(index: number, count: number, ahead: number): number {
+  if (count <= 0) return 0;
+  const start = Math.max(0, Math.min(index, count - 1));
+  return Math.min(count, start + clampAhead(ahead));
+}

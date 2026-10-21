@@ -9,7 +9,7 @@ const builderDirectory = existsSync('out/builder') ? 'out/builder' : null;
 const legacy = !builderDirectory;
 const extensions = legacy
   ? platform === 'win32' ? ['.exe', '.nupkg'] : platform === 'darwin' ? ['.zip'] : ['.deb', '.rpm']
-  : platform === 'win32' ? ['.exe', '.blockmap', '.yml'] : platform === 'darwin' ? ['.zip', '.blockmap', '.yml'] : ['.AppImage', '.deb', '.rpm', '.blockmap', '.yml'];
+  : platform === 'win32' ? ['.exe', '.blockmap', '.yml'] : platform === 'darwin' ? ['.zip', '.dmg', '.blockmap', '.yml'] : ['.AppImage', '.deb', '.rpm', '.blockmap', '.yml'];
 function files(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const name = path.join(directory, entry.name);

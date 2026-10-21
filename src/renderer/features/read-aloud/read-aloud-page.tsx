@@ -16,11 +16,13 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { KOKORO_VOICES, MODEL_CATALOG, type VoiceId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS, readAloudActive, type ReadAloudSource, type ReadAloudState } from '@shared/domain/read-aloud';
+import { READ_SPEED_PRESETS } from '@shared/read-aloud/speed';
 import { Button } from '@renderer/components/ui/button';
 import { IconButton } from '@renderer/components/ui/icon-button';
 import { Kbd, Notice, PageHeader } from '@renderer/components/ui/layout';
 import { Select } from '@renderer/components/ui/select';
 import { Slider } from '@renderer/components/ui/slider';
+import { Switch } from '@renderer/components/ui/switch';
 import { toast } from '@renderer/components/ui/toast';
 import { Waveform } from '@renderer/components/ui/waveform';
 import { api } from '@renderer/lib/api';
@@ -78,7 +80,7 @@ function useElapsed(playing: boolean): number {
  * The session text with each sentence clickable. While it is read, the sentence being read is
  * marked, the ones already read stay in full ink and the ones still to come are quieter.
  */
-function Preview({ follow }: { follow: boolean }) {
+function Preview({ follow, compact }: { follow: boolean; compact?: boolean }) {
   const session = useReadAloud((s) => s.session);
   const state = useReadAloud((s) => s.state);
   const seek = useReadAloud((s) => s.seek);
@@ -115,7 +117,7 @@ function Preview({ follow }: { follow: boolean }) {
   });
 
   return (
-    <ScrollArea.Root className="h-80 overflow-hidden">
+    <ScrollArea.Root className={cn(compact ? 'h-40' : 'h-80', 'overflow-hidden')}>
       <ScrollArea.Viewport className="size-full">
         <div data-selectable className="px-[22px] py-5 text-[17px] leading-[1.75] whitespace-pre-wrap text-ink">
           {parts}
@@ -164,6 +166,7 @@ export function ReadAloudPage() {
   const [editing, setEditing] = useState(true);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [speed, setSpeed] = useState<number | null>(null);
+  const [word, setWord] = useState('');
   const shownSession = useRef<string | null>(null);
 
   useEffect(() => {
@@ -177,6 +180,17 @@ export function ReadAloudPage() {
 
   const active = readAloudActive(state.status) && state.status !== 'capturing';
   const elapsed = useElapsed(state.status === 'playing' && !state.waiting);
+  const speedReading = settings?.tts.speedReading ?? false;
+  useEffect(() => {
+    if (!speedReading || !active) {
+      setWord('');
+      return;
+    }
+    const tick = () => setWord(useReadAloud.getState().word());
+    tick();
+    const id = setInterval(tick, 50);
+    return () => clearInterval(id);
+  }, [speedReading, active, state.index, state.seek, state.status, state.waiting]);
   if (!settings || !status) return null;
 
   const tts = MODEL_CATALOG[settings.tts.modelId];
@@ -295,6 +309,15 @@ export function ReadAloudPage() {
             aria-label="Text to read aloud"
             className="block h-80 w-full resize-y bg-transparent px-[22px] py-5 text-[17px] leading-[1.75] outline-none placeholder:text-faint"
           />
+        ) : speedReading && active ? (
+          <>
+            <div className="grid min-h-48 place-items-center bg-surface px-6 py-12">
+              <p className="text-center text-4xl font-semibold tracking-tight text-ink">
+                {word || (state.status === 'preparing' || state.waiting ? '…' : '')}
+              </p>
+            </div>
+            <Preview follow={settings.tts.followAlong} compact />
+          </>
         ) : (
           <Preview follow={settings.tts.followAlong} />
         )}
@@ -377,7 +400,7 @@ export function ReadAloudPage() {
             <Slider
               aria-label="Speech speed"
               min={0.5}
-              max={2}
+              max={3}
               step={0.05}
               value={[speed ?? settings.tts.speed]}
               onValueChange={([next]) => next !== undefined && setSpeed(next)}
@@ -387,6 +410,26 @@ export function ReadAloudPage() {
               }}
             />
             <span className="w-12 font-mono tabular-nums text-ink">{(speed ?? settings.tts.speed).toFixed(2)}×</span>
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {READ_SPEED_PRESETS.map((preset) => (
+              <Button
+                key={preset}
+                size="sm"
+                variant={(speed ?? settings.tts.speed) === preset ? 'primary' : 'secondary'}
+                onClick={() => update.mutate({ tts: { speed: preset } })}
+              >
+                {preset}×
+              </Button>
+            ))}
+          </div>
+          <label className="ml-auto flex items-center gap-2 text-sm text-muted">
+            Speed reading
+            <Switch
+              checked={speedReading}
+              onCheckedChange={(next) => update.mutate({ tts: { speedReading: next } })}
+              aria-label="Speed reading"
+            />
           </label>
           <label className="flex w-52 items-center gap-3 text-sm text-muted">
             Volume

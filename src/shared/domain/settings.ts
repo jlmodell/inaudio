@@ -195,7 +195,7 @@ export const settingsSchema = z.object({
   tts: z.object({
     modelId: ttsModelIdSchema,
     voiceId: voiceIdSchema,
-    speed: z.number().min(0.5).max(2),
+    speed: z.number().min(0.5).max(3),
     /** Reads the selection in the focused app; pressed again while reading, it stops. */
     shortcut: acceleratorSchema,
     pauseShortcut: optionalAcceleratorSchema,
@@ -211,6 +211,10 @@ export const settingsSchema = z.object({
     pauseOnDictation: z.boolean(),
     /** Highlight the sentence being read in the Read Aloud preview. */
     followAlong: z.boolean(),
+    /** Show one word at a time, timed to the sentence that is playing. */
+    speedReading: z.boolean(),
+    /** Sentences to generate before playback starts, then keep that many ahead. */
+    readAloudBuffer: z.number().int().min(1).max(8),
   }),
   overlay: z.object({
     enabled: z.boolean(),
@@ -363,6 +367,8 @@ export const DEFAULT_SETTINGS: Settings = {
     showInOverlay: true,
     pauseOnDictation: true,
     followAlong: true,
+    speedReading: false,
+    readAloudBuffer: 3,
   },
   overlay: {
     enabled: true,

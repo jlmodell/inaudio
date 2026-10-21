@@ -9,6 +9,7 @@ import {
   type ReadAloudState,
 } from '@shared/domain/read-aloud';
 import type { Settings } from '@shared/domain/settings';
+import { wordAtMs } from '@shared/read-aloud/words';
 import { toast } from '@renderer/components/ui/toast';
 import { api, errorMessage } from '@renderer/lib/api';
 import { encodeWav, SegmentPlayer } from '@renderer/lib/audio-player';
@@ -39,6 +40,8 @@ interface ReadAloudStore {
   seek(index: number): void;
   /** Milliseconds played since the start of the session. */
   elapsed(): number;
+  /** The word being spoken in the current sentence, for speed reading. */
+  word(): string;
   exportWav(): string | null;
 }
 
@@ -101,8 +104,8 @@ function reconcile(): void {
     player.pause();
     return;
   }
-  if (state.status !== 'playing' && state.status !== 'preparing') {
-    stopPlayback();
+  if (state.status !== 'playing') {
+    if (state.status !== 'preparing') stopPlayback();
     return;
   }
   player.resume();
@@ -177,6 +180,16 @@ export const useReadAloud = create<ReadAloudStore>((set, get) => ({
     const { state } = get();
     const before = state.durations.slice(0, state.index).reduce((sum, ms) => sum + ms, 0);
     return before + (started?.index === state.index ? player.position() : 0);
+  },
+
+  word() {
+    const { session, state } = get();
+    if (!session || state.sessionId !== session.sessionId) return '';
+    const segment = session.segments[state.index];
+    if (!segment) return '';
+    const duration = state.durations[state.index] ?? 0;
+    const at = started?.index === state.index ? player.position() : 0;
+    return wordAtMs(segment.text, duration, at);
   },
 
   exportWav() {

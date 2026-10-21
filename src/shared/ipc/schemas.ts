@@ -162,7 +162,7 @@ export const schemas = {
   speak: z.object({
     text: z.string().trim().min(1).max(MAX_TTS_CHARS),
     voiceId: voiceIdSchema.optional(),
-    speed: z.number().min(0.5).max(2).optional(),
+    speed: z.number().min(0.5).max(3).optional(),
   }),
   readAloudStart: z.discriminatedUnion('source', [
     z.object({ source: z.enum(['selection', 'clipboard']) }).strict(),

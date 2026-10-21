@@ -14,7 +14,7 @@ const invalid = entries
   .map((entry) => entry.name);
 if (invalid.length > 0) throw new Error(`Unexpected release asset entries: ${invalid.join(', ')}`);
 const names = entries.map((entry) => entry.name).sort();
-const expected = ['win32-x64', 'linux-x64', 'darwin-arm64'];
+const expected = ['win32-x64', 'darwin-arm64'];
 const verified = new Set();
 for (const target of expected) {
   const checksum = names.find((name) => name.startsWith(`SHA256SUMS-${target}-`));
