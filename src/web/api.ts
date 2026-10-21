@@ -5,6 +5,7 @@ import type {
   WebLiveResult,
   WebSettings,
   WebSettingsPatch,
+  WebSpeakChunk,
   WebStatus,
   WebTranscribeResult,
 } from '@shared/web/api';
@@ -121,4 +122,51 @@ export const api = {
       return response.blob();
     });
   },
+  async *speakStream(
+    input: { text: string; voiceId?: VoiceId; speed?: number },
+    signal?: AbortSignal,
+  ): AsyncGenerator<WebSpeakChunk> {
+    const response = await fetch('/api/speak/stream', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      signal,
+    });
+    if (response.status === 401) throw new AuthError();
+    if (!response.ok) {
+      try {
+        const body = (await response.json()) as { error?: string };
+        throw new Error(body.error ?? 'Could not read that aloud');
+      } catch (error) {
+        if (error instanceof Error) throw error;
+        throw new Error('Could not read that aloud');
+      }
+    }
+    if (!response.body) throw new Error('Could not read that aloud');
+    yield* readNdjson<WebSpeakChunk>(response.body);
+  },
 };
+
+async function* readNdjson<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    if (done) buffer += decoder.decode();
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) yield JSON.parse(line) as T;
+      newline = buffer.indexOf('\n');
+    }
+    if (done) {
+      const tail = buffer.trim();
+      if (tail) yield JSON.parse(tail) as T;
+      return;
+    }
+  }
+}
