@@ -66,12 +66,13 @@ async function route(
   }
 
   const signedIn = auth.verify(readCookie(req.headers.cookie, SESSION_COOKIE));
-  if (url.pathname.startsWith('/api/') && !signedIn) {
-    return json(res, 401, { error: 'Sign in to use Inaudio.' });
-  }
-
+  // The first paint reads this to decide between LoginPage and the app. A 401 here
+  // becomes a generic error in the client, so visitors never see the password field.
   if (method === 'GET' && url.pathname === '/api/status') {
     return json(res, 200, speech.status(signedIn));
+  }
+  if (url.pathname.startsWith('/api/') && !signedIn) {
+    return json(res, 401, { error: 'Sign in to use Inaudio.' });
   }
   if (method === 'GET' && url.pathname === '/api/settings') {
     return json(res, 200, speech.settings.get());

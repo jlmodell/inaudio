@@ -15,7 +15,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json');
   }
   const response = await fetch(path, { ...init, headers, credentials: 'same-origin' });
-  if (response.status === 401 && path !== '/api/login' && path !== '/api/status') {
+  if (response.status === 401 && path !== '/api/login') {
     throw new AuthError();
   }
   if (!response.ok) {
