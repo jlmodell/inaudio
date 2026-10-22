@@ -42,6 +42,10 @@ export class SpeakQueue {
     this.audio?.resume();
   }
 
+  playingIndex(): number {
+    return this.audio?.playingIndex() ?? 0;
+  }
+
   stop(): void {
     this.stopped = true;
     this.abort?.abort();

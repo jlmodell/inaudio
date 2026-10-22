@@ -15,6 +15,8 @@ export class SpeechApiPlayer {
   private stopped = false;
   private timers: number[] = [];
   private sawBoundary = false;
+  private text = '';
+  private charIndex = 0;
 
   async start(text: string, speed: number, hooks: SpeechHooks): Promise<void> {
     this.stop();
@@ -23,6 +25,8 @@ export class SpeechApiPlayer {
     await voicesReady();
     if (this.stopped) return;
     const rate = clampReadSpeed(speed);
+    this.text = text;
+    this.charIndex = 0;
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate = Math.min(3, Math.max(0.5, rate));
     utter.voice = pickVoice();
@@ -30,6 +34,7 @@ export class SpeechApiPlayer {
       if (this.stopped) return;
       if (event.name && event.name !== 'word') return;
       this.sawBoundary = true;
+      this.charIndex = event.charIndex;
       const word = wordAtChar(text, event.charIndex);
       if (word) hooks.onWord?.(word);
     };
@@ -61,6 +66,10 @@ export class SpeechApiPlayer {
 
   resume(): void {
     window.speechSynthesis.resume();
+  }
+
+  remainingText(): string {
+    return this.text.slice(this.charIndex).trim() || this.text;
   }
 
   stop(): void {

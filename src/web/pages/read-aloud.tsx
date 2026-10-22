@@ -26,6 +26,7 @@ export function ReadAloudPage() {
   const needsServer = engine === 'server';
   const [text, setText] = useState('');
   const [word, setWord] = useState('');
+  const [speedDraft, setSpeedDraft] = useState<number | null>(null);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [fallback, setFallback] = useState<string | null>(null);
@@ -115,6 +116,11 @@ export function ReadAloudPage() {
     setWord('');
   };
 
+  const applySpeech = (voiceId: VoiceId, speed: number) => {
+    if (phase !== 'playing' && phase !== 'paused') return;
+    void player.current?.updateSpeech({ voiceId, speed });
+  };
+
   const blocked = needsServer && !serverReady;
   const percent = progress ? readAloudProgressPercent(progress.loaded, progress.total) : 0;
   const speedReading = settings.speedReading;
@@ -130,7 +136,10 @@ export function ReadAloudPage() {
         <Select
           label="Voice"
           value={settings.voiceId}
-          onValueChange={(voiceId: VoiceId) => update.mutate({ voiceId })}
+          onValueChange={(voiceId: VoiceId) => {
+            update.mutate({ voiceId });
+            applySpeech(voiceId, settings.speed);
+          }}
           disabled={engine === 'speech'}
           options={KOKORO_VOICES.map((voice) => ({
             value: voice.id,
@@ -139,14 +148,20 @@ export function ReadAloudPage() {
           }))}
         />
         <label className="grid min-w-48 flex-1 gap-1">
-          <span className="text-xs text-muted">Speed {settings.speed}×</span>
+          <span className="text-xs text-muted">Speed {(speedDraft ?? settings.speed)}×</span>
           <Slider
             aria-label="Reading speed"
             min={0.5}
             max={3}
             step={0.05}
-            value={[settings.speed]}
-            onValueChange={([speed]) => speed !== undefined && update.mutate({ speed })}
+            value={[speedDraft ?? settings.speed]}
+            onValueChange={([speed]) => speed !== undefined && setSpeedDraft(speed)}
+            onValueCommit={([speed]) => {
+              setSpeedDraft(null);
+              if (speed === undefined) return;
+              update.mutate({ speed });
+              applySpeech(settings.voiceId, speed);
+            }}
           />
         </label>
       </div>
@@ -156,7 +171,10 @@ export function ReadAloudPage() {
             key={preset}
             size="sm"
             variant={settings.speed === preset ? 'primary' : 'secondary'}
-            onClick={() => update.mutate({ speed: preset })}
+            onClick={() => {
+              update.mutate({ speed: preset });
+              applySpeech(settings.voiceId, preset);
+            }}
           >
             {preset}×
           </Button>

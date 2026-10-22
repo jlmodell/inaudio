@@ -41,7 +41,7 @@ export interface ReadAloudState {
   count: number;
   /** Bumped by seek and replay, so the player restarts even on the same index. */
   seek: number;
-  /** Bumped when voice or speed change mid-session; audio of an older take is dropped. */
+  /** Bumped when voice or speed change; the current sentence and those ahead are synthesized again. */
   take: number;
   /** Duration of each delivered segment in ms, or 0 while it is not synthesized yet. */
   durations: number[];

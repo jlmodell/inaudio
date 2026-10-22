@@ -98,6 +98,12 @@ export function segmentText(text: string, maxOrLimits: number | SegmentLimits = 
   return out;
 }
 
+/** The rest of the session from this sentence, used when voice or speed change mid-read. */
+export function textFromSegmentIndex(text: string, segments: Pick<TextSegment, 'start'>[], index: number): string {
+  const start = segments[Math.max(0, index)]?.start ?? 0;
+  return text.slice(start);
+}
+
 function resolveLimits(maxOrLimits: number | SegmentLimits): { max: number; first: number; min: number } {
   if (typeof maxOrLimits === 'number') {
     return { max: maxOrLimits, first: Math.min(maxOrLimits, FIRST_SEGMENT_CHARS), min: MIN_SEGMENT_CHARS };

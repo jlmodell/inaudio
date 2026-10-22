@@ -1,6 +1,6 @@
 import { clipboard, shell } from 'electron';
 import { z } from 'zod';
-import { voiceSid } from '@shared/domain/models';
+import { ttsSpeakRequest } from '@shared/read-aloud/tts-request';
 import { EVENTS, IPC } from '@shared/ipc/channels';
 import { EXTERNAL_LINKS, schemas } from '@shared/ipc/schemas';
 import { openTrustedExternal } from '../security/hardening';
@@ -96,11 +96,15 @@ export function registerIpc(services: Services, requestQuit: () => Promise<void>
   listen('main', IPC.readAloudReport, schemas.readAloudReport, (report) => services.readAloud.report(report));
 
   handle(IPC.ttsSpeak, schemas.speak, async ({ text, voiceId, speed }) => {
-    const tts = settings.get().tts;
+    const request = ttsSpeakRequest({
+      ...settings.get().tts,
+      voiceId: voiceId ?? settings.get().tts.voiceId,
+      speed: speed ?? settings.get().tts.speed,
+    });
     companion.react('tts.started', 'speaking');
     try {
-      return await services.runModel(tts.modelId, () =>
-        synthesis.speak(text, voiceSid(voiceId ?? tts.voiceId), speed ?? tts.speed),
+      return await services.runModel(request.modelId, () =>
+        synthesis.speak(text, request.sid, request.speed),
       );
     } finally {
       companion.react('tts.completed', 'ready');
