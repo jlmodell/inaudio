@@ -1,6 +1,6 @@
 import { clipboard, Notification } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { MODEL_CATALOG, voiceSid, type ModelId, type VoiceId } from '@shared/domain/models';
+import { MODEL_CATALOG, type ModelId } from '@shared/domain/models';
 import {
   IDLE_READ_ALOUD,
   MAX_READ_ALOUD_CHARS,
@@ -18,7 +18,9 @@ import type { Settings } from '@shared/domain/settings';
 import { EVENTS } from '@shared/ipc/channels';
 import type { TtsResult } from '@shared/worker/protocol';
 import { aheadEnd, clampAhead } from '@shared/read-aloud/ahead';
+import { dropBufferedFrom, retakeFromCurrent } from '@shared/read-aloud/retake';
 import { normalizeText, segmentText } from '@shared/read-aloud/segment';
+import { float32Samples, ttsSpeakRequest } from '@shared/read-aloud/tts-request';
 import { appIcon } from '../../app/assets';
 import { SelectionProvider, type SelectionResult } from './selection-provider';
 
@@ -146,20 +148,21 @@ export class ReadAloudController {
     if (speaking) this.options.companion.react('tts.completed', 'ready');
   }
 
-  /** A new voice or speed applies from the next segment; the one playing finishes as it is. */
+  /** A new voice or speed stops the current sentence and reads it again with the new settings. */
   onSettings(next: Settings, previous: Settings): void {
     if (!this.session) return;
     const voiceOrSpeed = next.tts.voiceId !== previous.tts.voiceId || next.tts.speed !== previous.tts.speed;
     if (voiceOrSpeed) {
-      const { index } = this.state;
-      this.delivered = new Set([...this.delivered].filter((i) => i <= index));
-      this.state = {
-        ...this.state,
-        take: this.state.take + 1,
-        voiceId: next.tts.voiceId as VoiceId,
-        speed: next.tts.speed,
-        durations: this.state.durations.map((ms, i) => (i <= index ? ms : 0)),
-      };
+      let request;
+      try {
+        request = ttsSpeakRequest(next.tts);
+      } catch (error) {
+        this.fail(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      this.delivered = dropBufferedFrom(this.delivered, this.state.index);
+      this.inflight = null;
+      this.state = retakeFromCurrent(this.state, request.voiceId, request.speed);
       this.publish();
     }
     if (voiceOrSpeed || next.tts.readAloudBuffer !== previous.tts.readAloudBuffer) this.pump();
@@ -200,16 +203,31 @@ export class ReadAloudController {
 
   private async startFromClipboard(): Promise<void> {
     if (readAloudActive(this.state.status)) this.stop();
-    const text = await clipboard.readText().catch(() => '');
+    const text = await this.clipboardText();
     if (!text.trim()) this.fail('The clipboard has no text.');
     else this.begin('clipboard', text);
   }
 
+  /** Electron's clipboard.readText() is a string; await it anyway so either shape works. */
+  private async clipboardText(): Promise<string> {
+    try {
+      return String((await clipboard.readText()) ?? '');
+    } catch {
+      return '';
+    }
+  }
+
   private begin(source: ReadAloudSource, raw: string): void {
     this.capturing++;
-    const tts = this.options.settings().tts;
-    const model = MODEL_CATALOG[tts.modelId];
-    if (!this.options.isInstalled(tts.modelId)) {
+    let request;
+    try {
+      request = ttsSpeakRequest(this.options.settings().tts);
+    } catch (error) {
+      this.fail(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const model = MODEL_CATALOG[request.modelId];
+    if (!this.options.isInstalled(request.modelId)) {
       this.fail(`${model.name} is not downloaded yet. Open Models to download it.`);
       return;
     }
@@ -238,8 +256,8 @@ export class ReadAloudController {
       take: 0,
       durations: segments.map(() => 0),
       waiting: true,
-      voiceId: tts.voiceId as VoiceId,
-      speed: tts.speed,
+      voiceId: request.voiceId,
+      speed: request.speed,
       message: '',
     };
     this.options.ensureWindow();
@@ -301,9 +319,16 @@ export class ReadAloudController {
     const session = this.session;
     if (!session || this.inflight || !readAloudActive(this.state.status)) return;
     const { sessionId } = session;
-    const { index, count, take, voiceId, speed } = this.state;
+    const { index, count, take } = this.state;
+    let request;
+    try {
+      request = ttsSpeakRequest(this.options.settings().tts);
+    } catch (error) {
+      this.fail(error instanceof Error ? error.message : String(error));
+      return;
+    }
     let next = -1;
-    for (let i = index; i < aheadEnd(index, count, this.buffer()); i++) {
+    for (let i = index; i < aheadEnd(index, count, request.buffer); i++) {
       if (!this.delivered.has(i)) {
         next = i;
         break;
@@ -313,28 +338,19 @@ export class ReadAloudController {
     if (!segment) return;
     const job = { index: next };
     this.inflight = job;
-    const tts = this.options.settings().tts;
-    const expectedRate = MODEL_CATALOG[tts.modelId].layout.sampleRate;
-    let sid: number;
-    try {
-      sid = voiceSid(voiceId);
-    } catch (error) {
-      this.inflight = null;
-      this.fail(error instanceof Error ? error.message : String(error));
-      return;
-    }
     void this.options
-      .speak(tts.modelId, segment.text, sid, speed)
+      .speak(request.modelId, segment.text, request.sid, request.speed)
       .then((result) => {
         if (sessionId !== this.state.sessionId || take !== this.state.take) return;
-        if (result.sampleRate !== expectedRate) {
-          this.fail(`The voice produced ${result.sampleRate} Hz audio; ${expectedRate} Hz was expected.`);
+        if (result.sampleRate !== request.sampleRate) {
+          this.fail(`The voice produced ${result.sampleRate} Hz audio; ${request.sampleRate} Hz was expected.`);
           return;
         }
+        const samples = float32Samples(result.samples);
         this.delivered.add(next);
         const durations = [...this.state.durations];
-        durations[next] = Math.round((result.samples.length / result.sampleRate) * 1000);
-        const chunk: ReadAloudChunk = { sessionId, index: next, take, samples: result.samples, sampleRate: result.sampleRate };
+        durations[next] = Math.round((samples.length / request.sampleRate) * 1000);
+        const chunk: ReadAloudChunk = { sessionId, index: next, take, samples, sampleRate: request.sampleRate };
         this.options.send(EVENTS.readAloudChunk, chunk);
         const ready = this.startReady();
         this.state = {

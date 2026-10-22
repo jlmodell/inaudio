@@ -1,7 +1,7 @@
 import type { VoiceId } from '@shared/domain/models';
 import { MAX_READ_ALOUD_CHARS } from '@shared/domain/read-aloud';
 import { clampAhead, DEFAULT_READ_ALOUD_BUFFER, pullAhead } from '@shared/read-aloud/ahead';
-import { BROWSER_SEGMENT_LIMITS, normalizeText, segmentText } from '@shared/read-aloud/segment';
+import { BROWSER_SEGMENT_LIMITS, normalizeText, segmentText, textFromSegmentIndex } from '@shared/read-aloud/segment';
 import {
   browserVoiceName,
   clampReadSpeed,
@@ -43,14 +43,30 @@ export class ReadAloudPlayer {
   private server: SpeakQueue | null = null;
   private speech: SpeechApiPlayer | null = null;
   private stopped = false;
+  private paused = false;
+  private session: {
+    input: ReadAloudStart;
+    hooks: PlayerHooks;
+    normalized: string;
+    segments: ReturnType<typeof segmentText>;
+  } | null = null;
 
   async start(input: ReadAloudStart, hooks: PlayerHooks): Promise<void> {
     this.stop();
     this.stopped = false;
+    this.paused = false;
     const text = input.text.trim().slice(0, MAX_READ_ALOUD_CHARS);
     if (!text) return;
     const speed = clampReadSpeed(input.speed);
     const buffer = clampAhead(input.buffer ?? DEFAULT_READ_ALOUD_BUFFER);
+    const normalized = normalizeText(text);
+    const limits = input.engine === 'browser' ? BROWSER_SEGMENT_LIMITS : undefined;
+    this.session = {
+      input: { ...input, text, speed, buffer },
+      hooks,
+      normalized,
+      segments: segmentText(normalized, limits),
+    };
     if (input.retryOnDevice) {
       writeDeviceFallback(null);
       resetKokoroHost();
@@ -73,13 +89,41 @@ export class ReadAloudPlayer {
     }
   }
 
+  /**
+   * Drops buffered sentences and reads again from the one playing, with the new voice or speed.
+   * The current sentence is kept as the place; already-played ones are not replayed.
+   */
+  async updateSpeech(next: { voiceId: VoiceId; speed: number }): Promise<void> {
+    const session = this.session;
+    if (!session || this.stopped) return;
+    const speed = clampReadSpeed(next.speed);
+    if (session.input.voiceId === next.voiceId && session.input.speed === speed) return;
+    const remaining = this.speech
+      ? this.speech.remainingText()
+      : textFromSegmentIndex(session.normalized, session.segments, this.playingIndex());
+    if (!remaining.trim()) return;
+    const keepPaused = this.paused;
+    const hooks = session.hooks;
+    await this.start(
+      { ...session.input, text: remaining, voiceId: next.voiceId, speed, retryOnDevice: false },
+      hooks,
+    );
+    if (keepPaused) this.pause();
+  }
+
+  private playingIndex(): number {
+    return this.audio?.playingIndex() ?? this.server?.playingIndex() ?? 0;
+  }
+
   pause(): void {
+    this.paused = true;
     this.audio?.pause();
     this.server?.pause();
     this.speech?.pause();
   }
 
   resume(): void {
+    this.paused = false;
     this.audio?.resume();
     this.server?.resume();
     this.speech?.resume();
@@ -87,6 +131,8 @@ export class ReadAloudPlayer {
 
   stop(): void {
     this.stopped = true;
+    this.paused = false;
+    this.session = null;
     this.audio?.stop();
     this.server?.stop();
     this.speech?.stop();

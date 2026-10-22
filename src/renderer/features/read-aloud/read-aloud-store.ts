@@ -9,6 +9,7 @@ import {
   type ReadAloudState,
 } from '@shared/domain/read-aloud';
 import type { Settings } from '@shared/domain/settings';
+import { float32Samples, playbackSampleRate } from '@shared/read-aloud/tts-request';
 import { wordAtMs } from '@shared/read-aloud/words';
 import { toast } from '@renderer/components/ui/toast';
 import { api, errorMessage } from '@renderer/lib/api';
@@ -94,7 +95,8 @@ function reconcile(): void {
     bufferTake = state.take;
   }
   if (state.take !== bufferTake) {
-    for (const index of buffers.keys()) if (index > state.index) buffers.delete(index);
+    stopPlayback();
+    for (const index of buffers.keys()) if (index >= state.index) buffers.delete(index);
     bufferTake = state.take;
   }
   for (const index of buffers.keys()) if (index < state.index - READ_ALOUD_KEEP_BEHIND) buffers.delete(index);
@@ -116,8 +118,8 @@ function reconcile(): void {
 function onChunk(chunk: ReadAloudChunk): void {
   const { state } = useReadAloud.getState();
   if (chunk.sessionId !== state.sessionId || chunk.take !== state.take) return;
-  sampleRate = chunk.sampleRate;
-  buffers.set(chunk.index, chunk.samples);
+  sampleRate = playbackSampleRate(chunk.sampleRate, 24_000);
+  buffers.set(chunk.index, float32Samples(chunk.samples));
   reconcile();
 }
 

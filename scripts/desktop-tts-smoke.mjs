@@ -10,6 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import * as tar from 'tar';
 import bz2 from 'unbzip2-stream';
+import { sameSpeakRequest, ttsSpeakRequest } from '../src/shared/read-aloud/tts-request.ts';
 
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)));
 const require = createRequire(import.meta.url);
@@ -94,7 +95,14 @@ async function ensureModel() {
   return dir;
 }
 
-function runElectron(worker, models) {
+const PLAY_SETTINGS = {
+  modelId: 'kokoro-en-v0_19',
+  voiceId: '04',
+  speed: 2,
+  readAloudBuffer: 3,
+};
+
+function runElectron(worker, models, play, clipboard) {
   const main = path.join(root, 'scripts', 'desktop-tts-smoke-main.cjs');
   return new Promise((resolve, reject) => {
     const env = {
@@ -102,8 +110,11 @@ function runElectron(worker, models) {
       INAUDIO_SMOKE_WORKER: worker,
       INAUDIO_SMOKE_MODELS: models,
       INAUDIO_SMOKE_TEXT: 'The quick brown fox jumps over the lazy dog.',
-      INAUDIO_SMOKE_SID: '4',
-      INAUDIO_SMOKE_SPEED: '2',
+      INAUDIO_SMOKE_SID: String(play.sid),
+      INAUDIO_SMOKE_SPEED: String(play.speed),
+      INAUDIO_SMOKE_CLIPBOARD_SID: String(clipboard.sid),
+      INAUDIO_SMOKE_CLIPBOARD_SPEED: String(clipboard.speed),
+      INAUDIO_SMOKE_SAMPLE_RATE: String(play.sampleRate),
     };
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(electron, [main], {
@@ -137,8 +148,16 @@ if (!existsSync(appDir)) {
 }
 const worker = findWorker(appDir);
 process.stdout.write(`Using packaged worker ${worker}\n`);
+const play = ttsSpeakRequest(PLAY_SETTINGS);
+const clipboard = ttsSpeakRequest(PLAY_SETTINGS);
+if (!sameSpeakRequest(play, clipboard)) {
+  throw new Error('clipboard speak request diverged from the play-button request');
+}
+if (play.sid === 0 || play.speed === 1) {
+  throw new Error('smoke must use the persisted Sky / 2× settings, not the defaults');
+}
 const models = await ensureModel();
-const output = await runElectron(worker, models);
+const output = await runElectron(worker, models, play, clipboard);
 if (!/"ok":true/.test(output) && !/"ok": true/.test(output)) {
   throw new Error('packaged TTS smoke did not report success');
 }

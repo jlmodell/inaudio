@@ -27,6 +27,7 @@ type QueueHooks = {
 export class AudioQueue {
   private ctx: AudioContext | null = null;
   private sources: AudioBufferSourceNode[] = [];
+  private spans: { index: number; startAt: number; endAt: number }[] = [];
   private stopped = false;
   private raf = 0;
   private cues: { at: number; word: string }[] = [];
@@ -120,6 +121,7 @@ export class AudioQueue {
           node.start(startAt);
           nextAt = startAt + buffer.duration;
           this.sources.push(node);
+          this.spans.push({ index, startAt, endAt: nextAt });
           lastEnded = new Promise((resolve) => {
             node.onended = () => resolve();
           });
@@ -168,6 +170,17 @@ export class AudioQueue {
     void this.ctx?.resume();
   }
 
+  /** The sentence that is playing now, or 0 before the first buffer is scheduled. */
+  playingIndex(): number {
+    const ctx = this.ctx;
+    if (!ctx || this.spans.length === 0) return 0;
+    const now = ctx.currentTime;
+    for (const span of this.spans) {
+      if (now < span.endAt - 0.01) return span.index;
+    }
+    return this.spans[this.spans.length - 1]?.index ?? 0;
+  }
+
   stop(): void {
     this.stopped = true;
     window.cancelAnimationFrame(this.raf);
@@ -175,6 +188,7 @@ export class AudioQueue {
     this.cues = [];
     this.cueIndex = 0;
     this.lastWord = '';
+    this.spans = [];
     for (const source of this.sources) {
       try {
         source.stop();
